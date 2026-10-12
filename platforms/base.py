@@ -3,11 +3,11 @@
 This module defines the abstract base class that all platform backends must implement *on* (imp to mention yk).
 It separates OS-specific operations from command routing logic.
 
-gist: 
+gist:
     uses Abstract Base Class and it's Abstract methods so we can make linux.get_gpu_info()
-    like code. 
+    like code.
     It has abstracted layers as it will be easier for routing phrases.
-    as we do not have an internal language 
+    as we do not have an internal language
     or we are not resolving Cmds with Syntax tree with parser
     or we are not using whole Argument resolution
 """
@@ -17,24 +17,102 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 import subprocess
 
+from platforms.errors import (
+    PlatformError,
+    UnsupportedOperationError,
+    CapabilityNotAvailableError,
+    CommandNotFoundError,
+    BackendNotImplementedError,
+)
+
 
 class PlatformBackend(ABC):
     """Abstract base class for platform-specific operations.
 
     All platform backends (Linux, Windows, etc.) must implement this interface.
     The command routing layer uses this interface without knowing the concrete platform.
+
+    Methods may raise:
+        - UnsupportedOperationError: If the operation is not supported on this platform
+        - CapabilityNotAvailableError: If a required capability (e.g., display, battery) is not available
+        - CommandNotFoundError: If a required command/executable is not found
     """
+
+    # --- Capability Checking ---
+
+    def supports(self, capability: str) -> bool:
+        """Check if the platform backend supports a given capability.
+
+        Args:
+            capability: Name of the capability to check (e.g., 'battery', 'gpu', 'gui_editors')
+
+        Returns:
+            True if supported, False otherwise.
+        """
+        # Default implementation - subclasses should override for specific capabilities
+        supported_capabilities = {
+            "file_operations": True,
+            "process_execution": True,
+            "system_info": True,
+        }
+        return supported_capabilities.get(capability, False)
+
+    def require_capability(self, capability: str, reason: str = None) -> None:
+        """Ensure a capability is available, raising CapabilityNotAvailableError if not.
+
+        Args:
+            capability: Name of the required capability
+            reason: Optional reason for the requirement
+
+        Raises:
+            CapabilityNotAvailableError: If the capability is not supported
+        """
+        if not self.supports(capability):
+            raise CapabilityNotAvailableError(
+                capability,
+                platform=self.__class__.__name__.replace("Backend", "").lower(),
+                reason=reason,
+            )
+
+    def require_command(self, command: str) -> str:
+        """Ensure a command is available, raising CommandNotFoundError if not.
+
+        Args:
+            command: Name of the command to check
+
+        Returns:
+            The full path to the command
+
+        Raises:
+            CommandNotFoundError: If the command is not found
+        """
+        path = self.which(command)
+        if path is None:
+            raise CommandNotFoundError(
+                command,
+                platform=self.__class__.__name__.replace("Backend", "").lower(),
+            )
+        return path
 
     # --- System Information ---
 
     @abstractmethod
     def get_gpu_info(self) -> str:
-        """Return GPU information as a formatted string."""
+        """Return GPU information as a formatted string.
+
+        Raises:
+            CapabilityNotAvailableError: If GPU detection is not available
+            CommandNotFoundError: If required commands (e.g., lspci) are missing
+        """
         ...
 
     @abstractmethod
     def get_battery_info(self) -> str:
-        """Return battery information as a formatted string."""
+        """Return battery information as a formatted string.
+
+        Raises:
+            CapabilityNotAvailableError: If no battery is present or info unavailable
+        """
         ...
 
     @abstractmethod
@@ -59,7 +137,11 @@ class PlatformBackend(ABC):
 
     @abstractmethod
     def get_cpu_info(self) -> str:
-        """Return CPU information as a formatted string."""
+        """Return CPU information as a formatted string.
+
+        Raises:
+            CommandNotFoundError: If required commands (e.g., lscpu) are missing
+        """
         ...
 
     @abstractmethod
@@ -79,7 +161,11 @@ class PlatformBackend(ABC):
 
     @abstractmethod
     def get_network_info(self) -> str:
-        """Return network information as a formatted string."""
+        """Return network information as a formatted string.
+
+        Raises:
+            CommandNotFoundError: If required commands (e.g., ip, ifconfig) are missing
+        """
         ...
 
     @abstractmethod
@@ -89,7 +175,11 @@ class PlatformBackend(ABC):
 
     @abstractmethod
     def get_running_processes(self) -> str:
-        """Return running processes information as a formatted string."""
+        """Return running processes information as a formatted string.
+
+        Raises:
+            CommandNotFoundError: If required commands (e.g., ps) are missing
+        """
         ...
 
     @abstractmethod
@@ -109,7 +199,11 @@ class PlatformBackend(ABC):
 
     @abstractmethod
     def get_fastfetch_info(self) -> str:
-        """Return fastfetch/system summary information as a string."""
+        """Return fastfetch/system summary information as a string.
+
+        Raises:
+            CommandNotFoundError: If fastfetch is not installed
+        """
         ...
 
     # --- File Operations ---
@@ -131,17 +225,33 @@ class PlatformBackend(ABC):
 
     @abstractmethod
     def make_executable(self, path: Path) -> bool:
-        """Make a file executable. Returns True on success."""
+        """Make a file executable. Returns True on success.
+
+        Raises:
+            UnsupportedOperationError: If executable permissions are not supported
+            CommandNotFoundError: If chmod is not available
+        """
         ...
 
     @abstractmethod
     def edit_file(self, path: Path, editor: str) -> bool:
-        """Open a file in the specified editor. Returns True on success."""
+        """Open a file in the specified editor. Returns True on success.
+
+        Raises:
+            UnsupportedOperationError: If the editor is not supported
+            CommandNotFoundError: If the editor executable is not found
+            CapabilityNotAvailableError: If a GUI editor is requested but no display is available
+        """
         ...
 
     @abstractmethod
     def run_file(self, path: Path) -> bool:
-        """Run a file based on its extension. Returns True on success."""
+        """Run a file based on its extension. Returns True on success.
+
+        Raises:
+            UnsupportedOperationError: If the file type is not supported
+            CommandNotFoundError: If the required interpreter/compiler is not found
+        """
         ...
 
     @abstractmethod
@@ -158,7 +268,12 @@ class PlatformBackend(ABC):
 
     @abstractmethod
     def launch_background(self, args: List[str]) -> bool:
-        """Launch a GUI program in the background. Returns True on success."""
+        """Launch a GUI program in the background. Returns True on success.
+
+        Raises:
+            CapabilityNotAvailableError: If no display is available for GUI apps
+            CommandNotFoundError: If the executable is not found
+        """
         ...
 
     @abstractmethod
