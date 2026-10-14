@@ -144,6 +144,108 @@ These commands are recognised by the intent classifier and executed through safe
 
 ---
 
+## System Tools and Utilities
+
+E-SHELL supports invoking selected terminal-based system utilities when installed. Unlike classifier-predicted intents, system tools are invoked directly by their command name (or recognized aliases), preserving any arguments, flags, and options passed by the user.
+
+Type `tools` or `system tools` in E-SHELL to view current availability and install status for all tools.
+
+### 1. `htop`
+- **Description:** Interactive process viewer and system resource monitor.
+- **Invocation:** `htop [args]` (e.g. `htop`, `htop -d 10`, `htop -u <user>`).
+- **Required package:** `htop` (optional external dependency).
+- **Interactive:** Yes (TUI).
+- **Installation:**
+  - Debian/Ubuntu: `sudo apt install htop`
+  - Fedora/RHEL: `sudo dnf install htop`
+  - Arch Linux: `sudo pacman -S htop`
+  - macOS: `brew install htop`
+  - Windows: `winget install htop` or `scoop install htop`
+
+### 2. `btop`
+- **Description:** Modern visual monitor for CPU, memory, disks, network, and processes with graphs.
+- **Invocation:** `btop [args]` (e.g. `btop`, `btop --utf-force`).
+- **Required package:** `btop` (optional external dependency).
+- **Interactive:** Yes (TUI).
+- **Installation:**
+  - Debian/Ubuntu: `sudo apt install btop`
+  - Fedora/RHEL: `sudo dnf install btop`
+  - Arch Linux: `sudo pacman -S btop`
+  - macOS: `brew install btop`
+  - Windows: `winget install aristocratos.btop4win` or `scoop install btop`
+
+### 3. `ncdu`
+- **Description:** Interactive NCurses disk usage analyzer.
+- **Invocation:** `ncdu [path]` (e.g. `ncdu`, `ncdu /var/log`, `ncdu -x`).
+- **Required package:** `ncdu` (optional external dependency).
+- **Interactive:** Yes (TUI).
+- **Installation:**
+  - Debian/Ubuntu: `sudo apt install ncdu`
+  - Fedora/RHEL: `sudo dnf install ncdu`
+  - Arch Linux: `sudo pacman -S ncdu`
+  - macOS: `brew install ncdu`
+
+### 4. `locate`
+- **Description:** Fast file and directory searching using an indexed system database.
+- **Invocation:** `locate <pattern>` (e.g. `locate filename`, `locate -i "report.pdf"`).
+- **Required package:** `plocate` or `mlocate` (optional external dependency).
+- **Interactive:** No (CLI output).
+- **Aliases:** `plocate`, `mlocate`.
+- **Installation:**
+  - Debian/Ubuntu: `sudo apt install plocate`
+  - Fedora/RHEL: `sudo dnf install plocate`
+  - Arch Linux: `sudo pacman -S plocate`
+  - openSUSE / Alpine: `sudo zypper install mlocate` / `apk add mlocate`
+  - macOS: `brew install findutils`
+
+### 5. `tig`
+- **Description:** Text-mode interface for Git repository history, commit graphs, and diffs.
+- **Invocation:** `tig [args]` (e.g. `tig`, `tig status`, `tig log`).
+- **Required package:** `tig` (optional external dependency).
+- **Interactive:** Yes (TUI).
+- **Installation:**
+  - Debian/Ubuntu: `sudo apt install tig`
+  - Fedora/RHEL: `sudo dnf install tig`
+  - Arch Linux: `sudo pacman -S tig`
+  - macOS: `brew install tig`
+
+### 6. `lazygit`
+- **Description:** Simple and powerful terminal-based UI for Git commands and operations.
+- **Invocation:** `lazygit` (alias: `lazyfit`).
+- **Required package:** `lazygit` (optional external dependency).
+- **Interactive:** Yes (TUI).
+- **Installation:**
+  - Debian/Ubuntu: `sudo apt install lazygit`
+  - Fedora/RHEL: `sudo dnf copr enable atim/lazygit && sudo dnf install lazygit`
+  - Arch Linux: `sudo pacman -S lazygit`
+  - macOS: `brew install lazygit`
+  - Windows: `winget install JesseDuffield.lazygit` or `scoop install lazygit`
+
+### 7. `tree`
+- **Description:** Recursive directory listing displayed as a depth-indented tree.
+- **Invocation:** `tree [args]` (e.g. `tree`, `tree -L 2`, `tree -d`).
+- **Required package:** `tree` (optional external dependency).
+- **Interactive:** No (CLI output).
+- **Installation:**
+  - Debian/Ubuntu: `sudo apt install tree`
+  - Fedora/RHEL: `sudo dnf install tree`
+  - Arch Linux: `sudo pacman -S tree`
+  - macOS: `brew install tree`
+
+### 8. `fzf`
+- **Description:** General-purpose interactive command-line fuzzy finder.
+- **Invocation:** `fzf [args]` (e.g. `fzf`, `fzf --preview 'cat {}'`).
+- **Required package:** `fzf` (optional external dependency).
+- **Interactive:** Yes (TUI).
+- **Installation:**
+  - Debian/Ubuntu: `sudo apt install fzf`
+  - Fedora/RHEL: `sudo dnf install fzf`
+  - Arch Linux: `sudo pacman -S fzf`
+  - macOS: `brew install fzf`
+  - Windows: `winget install junegunn.fzf` or `scoop install fzf`
+
+---
+
 ## File Operation Commands
 
 File operations are triggered by direct keyword parsing (not the intent classifier). All operations are confined to safe paths and are non-destructive.

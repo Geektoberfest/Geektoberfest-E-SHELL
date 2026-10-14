@@ -47,11 +47,249 @@ EDITORS = {
     "emacs": {"command": ["emacs", "-nw"], "gui": False},
     "gedit": {"command": ["gedit"], "gui": True},
 }
+SYSTEM_TOOLS = {
+    "htop": {
+        "description": "Interactive process and system monitor",
+        "commands": ["htop"],
+        "package": "htop",
+        "interactive": True,
+        "packages": {
+            "apt": "sudo apt install htop",
+            "dnf": "sudo dnf install htop",
+            "pacman": "sudo pacman -S htop",
+            "zypper": "sudo zypper install htop",
+            "apk": "apk add htop",
+            "brew": "brew install htop",
+        },
+    },
+    "btop": {
+        "description": "Visual resource monitor showing CPU, memory, disks, network, and processes",
+        "commands": ["btop"],
+        "package": "btop",
+        "interactive": True,
+        "packages": {
+            "apt": "sudo apt install btop",
+            "dnf": "sudo dnf install btop",
+            "pacman": "sudo pacman -S btop",
+            "zypper": "sudo zypper install btop",
+            "apk": "apk add btop",
+            "brew": "brew install btop",
+        },
+    },
+    "ncdu": {
+        "description": "Interactive NCurses disk usage analyzer",
+        "commands": ["ncdu"],
+        "package": "ncdu",
+        "interactive": True,
+        "packages": {
+            "apt": "sudo apt install ncdu",
+            "dnf": "sudo dnf install ncdu",
+            "pacman": "sudo pacman -S ncdu",
+            "zypper": "sudo zypper install ncdu",
+            "apk": "apk add ncdu",
+            "brew": "brew install ncdu",
+        },
+    },
+    "locate": {
+        "description": "Fast file searching using an indexed database",
+        "commands": ["locate", "plocate", "mlocate"],
+        "package": "plocate",
+        "interactive": False,
+        "packages": {
+            "apt": "sudo apt install plocate",
+            "dnf": "sudo dnf install plocate",
+            "pacman": "sudo pacman -S plocate",
+            "zypper": "sudo zypper install mlocate",
+            "apk": "apk add mlocate",
+            "brew": "brew install findutils",
+        },
+    },
+    "tig": {
+        "description": "Text-mode interface for Git repository history and diff browsing",
+        "commands": ["tig"],
+        "package": "tig",
+        "interactive": True,
+        "packages": {
+            "apt": "sudo apt install tig",
+            "dnf": "sudo dnf install tig",
+            "pacman": "sudo pacman -S tig",
+            "zypper": "sudo zypper install tig",
+            "apk": "apk add tig",
+            "brew": "brew install tig",
+        },
+    },
+    "lazygit": {
+        "description": "Terminal-based user interface for Git operations",
+        "commands": ["lazygit"],
+        "package": "lazygit",
+        "interactive": True,
+        "packages": {
+            "apt": "sudo apt install lazygit",
+            "dnf": "sudo dnf install lazygit",
+            "pacman": "sudo pacman -S lazygit",
+            "zypper": "sudo zypper install lazygit",
+            "apk": "apk add lazygit",
+            "brew": "brew install lazygit",
+        },
+    },
+    "tree": {
+        "description": "Recursive directory listing displayed as a depth-indented tree",
+        "commands": ["tree"],
+        "package": "tree",
+        "interactive": False,
+        "packages": {
+            "apt": "sudo apt install tree",
+            "dnf": "sudo dnf install tree",
+            "pacman": "sudo pacman -S tree",
+            "zypper": "sudo zypper install tree",
+            "apk": "apk add tree",
+            "brew": "brew install tree",
+        },
+    },
+    "fzf": {
+        "description": "Command-line interactive fuzzy finder",
+        "commands": ["fzf"],
+        "package": "fzf",
+        "interactive": True,
+        "packages": {
+            "apt": "sudo apt install fzf",
+            "dnf": "sudo dnf install fzf",
+            "pacman": "sudo pacman -S fzf",
+            "zypper": "sudo zypper install fzf",
+            "apk": "apk add fzf",
+            "brew": "brew install fzf",
+        },
+    },
+}
+TOOL_ALIASES = {
+    "lazyfit": "lazygit",
+    "plocate": "locate",
+    "mlocate": "locate",
+}
 RUN_TIMEOUT_SECONDS = 10
 # ZIP extraction limits keep a single archive from filling the disk.
 MAX_ZIP_ENTRIES = 200
 MAX_ZIP_UNPACKED_BYTES = 20 * 1024 * 1024
 APPROVED_RUN_FILES = set()
+
+
+def resolve_system_tool(name):
+    """Return the canonical tool name if recognized, or None."""
+    if not name:
+        return None
+    lowered = name.lower()
+    canonical = TOOL_ALIASES.get(lowered, lowered)
+    if canonical in SYSTEM_TOOLS:
+        return canonical
+    return None
+
+
+def find_tool_executable(canonical):
+    """Find and return the executable path for a supported system tool, or None."""
+    config = SYSTEM_TOOLS.get(canonical)
+    if not config:
+        return None
+    for cmd in config.get("commands", []):
+        found = shutil.which(cmd)
+        if found:
+            return found
+    return None
+
+
+def get_warn_prefix():
+    """Return a warning symbol that can safely be encoded by the active stdout stream."""
+    encoding = getattr(sys.stdout, "encoding", None)
+    if encoding:
+        try:
+            "⚠️".encode(encoding)
+            return "⚠️"
+        except UnicodeEncodeError:
+            return "[!]"
+    return "⚠️"
+
+
+def get_tool_install_instructions(canonical):
+    """Format clear, actionable installation instructions for a missing tool."""
+    config = SYSTEM_TOOLS.get(canonical)
+    if not config:
+        return f"Tool '{canonical}' is not recognized."
+
+    warn = get_warn_prefix()
+    pkg_name = config.get("package", canonical)
+    lines = [
+        f"{warn} '{canonical}' is not installed or is not on PATH.",
+        f"   Description: {config['description']}",
+        "   To install it:",
+    ]
+
+    detected_managers = [
+        m for m in ("apt", "dnf", "pacman", "zypper", "apk", "brew") if shutil.which(m)
+    ]
+    packages = config.get("packages", {})
+
+    if detected_managers:
+        for pm in detected_managers:
+            if pm in packages:
+                lines.append(f"     {packages[pm]}")
+    else:
+        for pm, install_cmd in packages.items():
+            lines.append(f"     {install_cmd}")
+
+    if platform.system() == "Windows":
+        lines.append(f"     winget install {pkg_name}  (or via scoop/choco)")
+
+    return "\n".join(lines)
+
+
+def handle_system_tool(tool_name, user_args=None):
+    """Execute a supported system tool with user arguments, or show installation instructions."""
+    if user_args is None:
+        user_args = []
+
+    canonical = resolve_system_tool(tool_name)
+    if not canonical:
+        print(f"Unknown system tool: {tool_name}")
+        return False
+
+    if canonical == "locate" and not user_args:
+        print("Please provide a search pattern, for example: locate filename")
+        return False
+
+    executable = find_tool_executable(canonical)
+    if not executable:
+        print(get_tool_install_instructions(canonical))
+        return False
+
+    full_args = [executable, *user_args]
+    warn = get_warn_prefix()
+    try:
+        result = subprocess.run(full_args, check=False)
+        return result.returncode == 0
+    except FileNotFoundError:
+        print(f"{warn} Command not available: {executable}")
+        return False
+    except PermissionError:
+        print(f"{warn} Permission denied when attempting to run '{canonical}'.")
+        return False
+    except OSError as error:
+        print(f"{warn} Could not run '{canonical}': {error}")
+        return False
+    except KeyboardInterrupt:
+        print()
+        return False
+
+
+def show_system_tools_status():
+    """Display all supported system tools, descriptions, and installation statuses."""
+    print("Available System Tools:")
+    print("-" * 65)
+    for name, config in SYSTEM_TOOLS.items():
+        installed = find_tool_executable(name) is not None
+        status = "[installed]" if installed else "[not installed]"
+        print(f"  {name:<10} - {config['description']}")
+        print(f"               Status: {status} (package: {config['package']})")
+    print("-" * 65)
+    print("Run any tool directly by name, e.g. 'htop', 'ncdu', 'tree', or 'locate <pattern>'.")
 
 
 def run_command(args):
@@ -189,6 +427,11 @@ Available examples:
   edit hello.py           open hello.py in nano   open hello.py in vim
   make hello.py executable
   run hello.py            unzip project.zip       version
+
+System tools:
+  htop                    btop                    ncdu
+  locate <pattern>        tig                     lazygit
+  tree                    fzf                     tools
 
 File safety rules:
   - Only simple names in the current project directory are allowed.
@@ -917,6 +1160,17 @@ def handle_command(text):
             handle_copy(["cp", words[1], words[3]])
         else:
             print("Please use: copy source to destination")
+        return
+
+    if (
+        first_word in ("tools", "system_tools")
+        or lowered_words[:2] in (["system", "tools"], ["show", "tools"], ["list", "tools"])
+    ):
+        show_system_tools_status()
+        return
+
+    if resolve_system_tool(first_word):
+        handle_system_tool(first_word, words[1:])
         return
 
     intent = predict_intent(text)
