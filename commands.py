@@ -34,23 +34,19 @@ BLOCKED_COMMANDS = {
 }
 PROJECT_DIR = Path.cwd().resolve()
 WORKSPACE_DIR = PROJECT_DIR / "workspace"
-"""
-EDITORS now consist all the editors that can be used from REPL.
-"EDITOR" : { "EditorName": ["cmd"], "type", ""}
-"""
-EDITORS = {
-    "nano": {"command": ["nano"], "gui": False},
-    "vim": {"command": ["vim"], "gui": False},
-    "micro": {"command": ["micro"], "gui": False},
-    "helix": {"command": ["hx"], "gui": False},
-    "emacs": {"command": ["emacs", "-nw"], "gui": False},
-    "gedit": {"command": ["gedit"], "gui": True},
-}
-RUN_TIMEOUT_SECONDS = 10
 # ZIP extraction limits keep a single archive from filling the disk.
 MAX_ZIP_ENTRIES = 200
 MAX_ZIP_UNPACKED_BYTES = 20 * 1024 * 1024
 APPROVED_RUN_FILES = set()
+RUN_TIMEOUT_SECONDS = 10
+
+
+def run_command(args):
+    return get_backend().run_command(args)
+
+
+def launch_background(args):
+    return get_backend().launch_background(args)
 
 
 def validate_filename(name):
@@ -80,82 +76,6 @@ def get_safe_path(filename):
         return None
 
     return path
-
-
-def print_completed_process(result):
-    if result.stdout:
-        print(result.stdout, end="")
-    if result.stderr:
-        print("Errors:")
-        print(result.stderr, end="")
-
-
-def run_and_print(args, cwd=None):
-    try:
-        result = subprocess.run(
-            args,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=RUN_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except FileNotFoundError:
-        print(f" Command not available: {args[0]}")
-        return None
-    except subprocess.TimeoutExpired:
-        print(f"Stopped after {RUN_TIMEOUT_SECONDS} seconds because the program took too long.")
-        return None
-
-    print_completed_process(result)
-    return result
-
-
-def compile_then_run(compile_args, run_args, cwd=None):
-    compile_result = run_and_print(compile_args, cwd=cwd)
-    if compile_result is None:
-        return
-    if compile_result.returncode != 0:
-        print("Compiler errors are shown above.")
-        return
-
-    run_and_print(run_args, cwd=cwd)
-
-
-def run_python_file(path):
-    run_and_print(["python3", str(path)])
-
-
-def run_c_file(path):
-    output_path = path.with_suffix("")
-    compile_then_run(["gcc", str(path), "-o", str(output_path)], [str(output_path)])
-
-
-def run_cpp_file(path):
-    output_path = path.with_suffix("")
-    compile_then_run(["g++", str(path), "-o", str(output_path)], [str(output_path)])
-
-
-def run_java_file(path):
-    class_name = path.stem
-    compile_then_run(["javac", str(path)], ["java", "-cp", str(WORKSPACE_DIR), class_name])
-
-
-def run_js_file(path):
-    run_and_print(["node", str(path)])
-
-
-def run_shell_file(path):
-    run_and_print(["bash", str(path)])
-
-
-def run_go_file(path):
-    run_and_print(["go", "run", str(path)])
-
-
-def run_rust_file(path):
-    output_path = path.with_suffix("")
-    compile_then_run(["rustc", str(path), "-o", str(output_path)], [str(output_path)])
 
 
 def print_help():
@@ -213,6 +133,7 @@ def parse_words(text):
 
 def handle_edit(words):
     command = words[0].lower()
+    backend = get_backend()
 
     if len(words) == 2 and command in {"edit", "open"}: # two values to value through
         filename = words[1]
@@ -225,8 +146,8 @@ def handle_edit(words):
         return
         
     # sanity check for available Editors in EDITORS~
-    if editor not in EDITORS:
-        supported = ", ".join(EDITORS)
+    if editor not in backend.get_supported_editors():
+        supported = ", ".join(backend.get_supported_editors())
         print(f"Unsupported editor. Supported editors: {supported}.")
         return
 
@@ -234,50 +155,18 @@ def handle_edit(words):
     if not path:
         return
 
-    editor_config = EDITORS[editor]
-    executable = editor_config["command"][0]
-
-    # warn-suggestion if Text editor is available in EDITOR but not on user's system
-    if not shutil.which(executable):
-        print(
-            f"Editor '{editor}' is not installed or is not on PATH. "
-            "Install it with your Linux distribution's package manager, "
-            "or choose another installed editor."
-        )
-        return
-    # display sanity check
-    if editor_config["gui"] and not has_display():
-        print(f"'{editor}' needs a graphical display and none was found. Try nano, vim, or micro.")
-        return
-
-    # taking args to run subprocess ( true cmd )
-    args = [*editor_config["command"], str(path)]
-
-    try:
-        # sanity check for GUI vs Terminal base
-        if editor_config["gui"]:
-            subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                 stderr=subprocess.DEVNULL, start_new_session=True)
-            # with new sessiona and cancels warning prompts
-        else:
-            subprocess.run(args, check=False)
-    except OSError as error:
-        print(f"Could not open {editor}: {error}")
-        return
-
-    record_editor_use(editor)
+    if backend.edit_file(path, editor):
+        record_editor_use(editor)
 
 
 # the best sanity check
 # helpful if somebody is SSH into Linux based machine or using WSLg (wsl2 might give windowsub-pop)
-def has_display():
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-
-
 def choose_default_editor():
     # if user has set a global default with envVAR
     override = os.environ.get("E_SHELL_DEFAULT_EDITOR", "").strip().lower()
-    if override in EDITORS and shutil.which(EDITORS[override]["command"][0]):
+    backend = get_backend()
+    editors = backend.get_supported_editors()
+    if override in editors and backend.which(editors[override]["command"][0]):
         return override
     
     # called from settings
@@ -289,11 +178,11 @@ def choose_default_editor():
     usable = {
         name: count
         for name, count in usage.items()
-        if name in EDITORS
+        if name in editors
         and isinstance(count, int)
         and count > 0
-        and shutil.which(EDITORS[name]["command"][0])
-        and (not EDITORS[name]["gui"] or has_display())
+        and backend.which(editors[name]["command"][0])
+        and (not editors[name]["gui"] or backend.has_display())
     }
 
     if usable:
@@ -327,11 +216,8 @@ def handle_make_executable(words):
         print(f"File does not exist in workspace: {path.name}")
         return
 
-    try:
-        subprocess.run(["chmod", "+x", str(path)], check=False)
+    if get_backend().make_executable(path):
         print(f"Made executable: {path.name}")
-    except FileNotFoundError:
-        print(" Command not available: chmod")
 
 
 def ask_before_first_run(path):
@@ -363,22 +249,8 @@ def handle_run_file(words):
     if not ask_before_first_run(path):
         return
 
-    runners = {
-        ".py": run_python_file,
-        ".c": run_c_file,
-        ".cpp": run_cpp_file,
-        ".java": run_java_file,
-        ".js": run_js_file,
-        ".sh": run_shell_file,
-        ".go": run_go_file,
-        ".rs": run_rust_file,
-    }
-    runner = runners.get(path.suffix)
-    if not runner:
+    if not get_backend().run_file(path):
         print("Unsupported file type. Supported: .py, .c, .cpp, .java, .js, .sh, .go, .rs")
-        return
-
-    runner(path)
 
 
 class ZipExtractionError(Exception):
@@ -535,8 +407,8 @@ def handle_touch(words):
 
     path = safe_name(words[1], "file")
     if path:
-        path.touch(exist_ok=True)
-        print(f"Created file: {path.name}")
+        if get_backend().create_file(path):
+            print(f"Created file: {path.name}")
 
 
 def handle_mkdir(words):
@@ -552,8 +424,8 @@ def handle_mkdir(words):
         return
 
     try:
-        path.mkdir(exist_ok=False)
-        print(f"Created folder: {path.name}")
+        if get_backend().create_directory(path):
+            print(f"Created folder: {path.name}")
     except FileExistsError:
         print(f"Folder already exists: {path.name}")
 
@@ -574,9 +446,8 @@ def handle_copy(words):
         print(f"Source file does not exist: {source.name}")
         return
 
-    # copy2 preserves useful metadata while still avoiding shell=True entirely.
-    shutil.copy2(source, destination)
-    print(f"Copied {source.name} to {destination.name}")
+    if get_backend().copy_file(source, destination):
+        print(f"Copied {source.name} to {destination.name}")
 
 
 def show_gpu_info():
@@ -734,8 +605,8 @@ def handle_command(text):
 
     backend = get_backend()
     handlers = {
-        "list_files": lambda: backend.run_command(["ls"]),
-        "current_dir": lambda: backend.run_command(["pwd"]),
+        "list_files": lambda: run_command(["ls"]),
+        "current_dir": lambda: run_command(["pwd"]),
         "disk_usage": show_disk_usage,
         "memory_usage": show_memory_usage,
         "date_time": lambda: print(datetime.datetime.now()),
@@ -744,8 +615,8 @@ def handle_command(text):
         "cpu_info": show_cpu_info,
         "current_user": show_current_user,
         "hostname": show_hostname,
-        "open_firefox": lambda: backend.launch_background(["firefox"]),
-        "calculator": lambda: backend.launch_background(["gnome-calculator"]),
+        "open_firefox": lambda: launch_background(["firefox"]),
+        "calculator": lambda: launch_background(["gnome-calculator"]),
         "os_info": show_os_info,
         "gpu_info": show_gpu_info,
         "battery_info": show_battery_info,

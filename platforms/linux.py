@@ -22,11 +22,27 @@ from typing import List, Optional, Dict, Any
 import subprocess
 
 
+"""
+EDITORS now consist all the editors that can be used from REPL.
+"EDITOR" : { "EditorName": ["cmd"], "type", ""}
+"""
+EDITORS = {
+    "nano": {"command": ["nano"], "gui": False},
+    "vim": {"command": ["vim"], "gui": False},
+    "micro": {"command": ["micro"], "gui": False},
+    "helix": {"command": ["hx"], "gui": False},
+    "emacs": {"command": ["emacs", "-nw"], "gui": False},
+    "gedit": {"command": ["gedit"], "gui": True},
+}
+RUN_TIMEOUT_SECONDS = 10
+BLOCKED_NAME_PARTS = ("/", "..", "~", "*", "?", "&", "|", ";", "$", "`", ">", "<")
+
+
 class LinuxBackend(PlatformBackend):
 
     def supports(self, capability: str) -> bool:
         """Return capabilities implemented by this backend."""
-        return capability in {"system_info", "process_execution"}
+        return capability in {"system_info", "process_execution", "file_operations", "gui_editors"}
 
     @staticmethod
     def _capture(args: List[str]) -> Optional[str]:
@@ -36,6 +52,15 @@ class LinuxBackend(PlatformBackend):
         except FileNotFoundError:
             return None
         return result.stdout.rstrip()
+
+    def _compile_then_run(self, compile_args: List[str], run_args: List[str]) -> None:
+        compile_result = self.run_and_capture(compile_args, timeout=RUN_TIMEOUT_SECONDS)
+        if compile_result is None:
+            return
+        if compile_result.returncode != 0:
+            print("Compiler errors are shown above.")
+            return
+        self.run_and_capture(run_args, timeout=RUN_TIMEOUT_SECONDS)
 
     # --- System Information ---
 
@@ -227,22 +252,75 @@ class LinuxBackend(PlatformBackend):
     # --- File Operations ---
 
     def create_file(self, path: Path) -> bool:
-        raise UnsupportedOperationError("create_file", "linux")
+        path.touch(exist_ok=True)
+        return True
 
     def create_directory(self, path: Path) -> bool:
-        raise UnsupportedOperationError("create_directory", "linux")
+        path.mkdir(exist_ok=False)
+        return True
 
     def copy_file(self, source: Path, destination: Path) -> bool:
-        raise UnsupportedOperationError("copy_file", "linux")
+        shutil.copy2(source, destination)
+        return True
 
     def make_executable(self, path: Path) -> bool:
-        raise UnsupportedOperationError("make_executable", "linux")
+        try:
+            subprocess.run(["chmod", "+x", str(path)], check=False)
+        except FileNotFoundError:
+            print("Command not available: chmod")
+            return False
+        return True
 
     def edit_file(self, path: Path, editor: str) -> bool:
-        raise UnsupportedOperationError("edit_file", "linux")
+        editor_config = EDITORS.get(editor)
+        if editor_config is None:
+            return False
+
+        executable = editor_config["command"][0]
+        if not self.which(executable):
+            print(
+                f"Editor '{editor}' is not installed or is not on PATH. "
+                "Install it with your Linux distribution's package manager, "
+                "or choose another installed editor."
+            )
+            return False
+        if editor_config["gui"] and not self.has_display():
+            print(f"'{editor}' needs a graphical display and none was found. Try nano, vim, or micro.")
+            return False
+
+        args = [*editor_config["command"], str(path)]
+        try:
+            if editor_config["gui"]:
+                subprocess.Popen(
+                    args,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            else:
+                subprocess.run(args, check=False)
+        except OSError as error:
+            print(f"Could not open {editor}: {error}")
+            return False
+        return True
 
     def run_file(self, path: Path) -> bool:
-        raise UnsupportedOperationError("run_file", "linux")
+        runners = {
+            ".py": lambda: self.run_and_capture(["python3", str(path)]),
+            ".c": lambda: self._compile_then_run(["gcc", str(path), "-o", str(path.with_suffix(""))], [str(path.with_suffix(""))]),
+            ".cpp": lambda: self._compile_then_run(["g++", str(path), "-o", str(path.with_suffix(""))], [str(path.with_suffix(""))]),
+            ".java": lambda: self._compile_then_run(["javac", str(path)], ["java", "-cp", str(path.parent), path.stem]),
+            ".js": lambda: self.run_and_capture(["node", str(path)]),
+            ".sh": lambda: self.run_and_capture(["bash", str(path)]),
+            ".go": lambda: self.run_and_capture(["go", "run", str(path)]),
+            ".rs": lambda: self._compile_then_run(["rustc", str(path), "-o", str(path.with_suffix(""))], [str(path.with_suffix(""))]),
+        }
+        runner = runners.get(path.suffix)
+        if runner is None:
+            return False
+        runner()
+        return True
 
     def extract_zip(self, archive_path: Path, extract_to: Path) -> int:
         raise UnsupportedOperationError("extract_zip", "linux")
@@ -267,41 +345,73 @@ class LinuxBackend(PlatformBackend):
         return True
 
     def run_and_capture(self, args: List[str], cwd: Optional[Path] = None, timeout: int = 10) -> Optional[subprocess.CompletedProcess]:
-        raise UnsupportedOperationError("run_and_capture", "linux")
+        try:
+            result = subprocess.run(
+                args,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except FileNotFoundError:
+            print(f"Command not available: {args[0]}")
+            return None
+        except subprocess.TimeoutExpired:
+            print(f"Stopped after {timeout} seconds because the program took too long.")
+            return None
+
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print("Errors:")
+            print(result.stderr, end="")
+        return result
 
     # --- Platform Capabilities ---
 
     def has_display(self) -> bool:
-        raise UnsupportedOperationError("has_display", "linux")
+        return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
     def which(self, command: str) -> Optional[str]:
-        raise UnsupportedOperationError("which", "linux")
+        return shutil.which(command)
 
     def get_shell(self) -> str:
         return os.environ.get("SHELL", "Unknown shell")
 
     def get_editor_command(self, editor_name: str) -> Optional[List[str]]:
-        raise UnsupportedOperationError("get_editor_command", "linux")
+        editor = EDITORS.get(editor_name)
+        return editor["command"] if editor else None
 
     def is_editor_gui(self, editor_name: str) -> bool:
-        raise UnsupportedOperationError("is_editor_gui", "linux")
+        editor = EDITORS.get(editor_name)
+        return bool(editor and editor["gui"])
 
     def get_supported_editors(self) -> Dict[str, Dict[str, Any]]:
-        raise UnsupportedOperationError("get_supported_editors", "linux")
+        return EDITORS.copy()
 
     # --- Utility ---
 
     def get_workspace_dir(self) -> Path:
-        raise UnsupportedOperationError("get_workspace_dir", "linux")
+        return self.get_project_dir() / "workspace"
 
     def get_project_dir(self) -> Path:
-        raise UnsupportedOperationError("get_project_dir", "linux")
+        return Path.cwd().resolve()
 
     def validate_filename(self, name: str) -> bool:
-        raise UnsupportedOperationError("validate_filename", "linux")
+        return bool(name) and not any(part in name for part in BLOCKED_NAME_PARTS)
 
     def get_safe_path(self, filename: str) -> Optional[Path]:
-        raise UnsupportedOperationError("get_safe_path", "linux")
+        if not self.validate_filename(filename):
+            return None
+        workspace = self.get_workspace_dir()
+        workspace.mkdir(exist_ok=True)
+        path = (workspace / filename).resolve()
+        return path if path.parent == workspace.resolve() else None
 
     def safe_name(self, name: str, label: str) -> Optional[Path]:
-        raise UnsupportedOperationError("safe_name", "linux")
+        if not self.validate_filename(name):
+            return None
+        project = self.get_project_dir()
+        candidate = (project / name).resolve()
+        return candidate if candidate.parent == project else None
