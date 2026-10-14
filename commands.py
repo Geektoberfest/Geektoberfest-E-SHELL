@@ -53,22 +53,6 @@ MAX_ZIP_UNPACKED_BYTES = 20 * 1024 * 1024
 APPROVED_RUN_FILES = set()
 
 
-def run_command(args):
-    """Run a known-safe command without invoking a shell."""
-    try:
-        subprocess.run(args, check=False)
-    except FileNotFoundError:
-        print(f"⚠️ Command not available: {args[0]}")
-
-
-def launch_background(args):
-    """Start a known GUI program without using a shell."""
-    try:
-        subprocess.Popen(args)
-    except FileNotFoundError:
-        print(f"⚠️ Command not available: {args[0]}")
-
-
 def validate_filename(name):
     """Return True only for simple filenames allowed in the workspace."""
     if not name:
@@ -117,7 +101,7 @@ def run_and_print(args, cwd=None):
             check=False,
         )
     except FileNotFoundError:
-        print(f"⚠️ Command not available: {args[0]}")
+        print(f" Command not available: {args[0]}")
         return None
     except subprocess.TimeoutExpired:
         print(f"Stopped after {RUN_TIMEOUT_SECONDS} seconds because the program took too long.")
@@ -347,7 +331,7 @@ def handle_make_executable(words):
         subprocess.run(["chmod", "+x", str(path)], check=False)
         print(f"Made executable: {path.name}")
     except FileNotFoundError:
-        print("⚠️ Command not available: chmod")
+        print(" Command not available: chmod")
 
 
 def ask_before_first_run(path):
@@ -748,9 +732,10 @@ def handle_command(text):
     if DEBUG:
         print(f"[DEBUG] Predicted intent: {intent}")
 
+    backend = get_backend()
     handlers = {
-        "list_files": lambda: run_command(["ls"]),
-        "current_dir": lambda: run_command(["pwd"]),
+        "list_files": lambda: backend.run_command(["ls"]),
+        "current_dir": lambda: backend.run_command(["pwd"]),
         "disk_usage": show_disk_usage,
         "memory_usage": show_memory_usage,
         "date_time": lambda: print(datetime.datetime.now()),
@@ -759,8 +744,8 @@ def handle_command(text):
         "cpu_info": show_cpu_info,
         "current_user": show_current_user,
         "hostname": show_hostname,
-        "open_firefox": lambda: launch_background(["firefox"]),
-        "calculator": lambda: launch_background(["gnome-calculator"]),
+        "open_firefox": lambda: backend.launch_background(["firefox"]),
+        "calculator": lambda: backend.launch_background(["gnome-calculator"]),
         "os_info": show_os_info,
         "gpu_info": show_gpu_info,
         "battery_info": show_battery_info,
@@ -769,7 +754,7 @@ def handle_command(text):
         "logged_in_users": show_logged_in_users,
         "running_processes": show_running_processes,
         "environment_info": show_environment_info,
-        "shell_info": lambda: print(os.environ.get("SHELL", "Unknown shell")),
+        "shell_info": lambda: print(backend.get_shell()),
         "python_version": show_python_version,
         "package_manager_info": show_package_manager_info,
         "fastfetch_info": show_fastfetch_info,

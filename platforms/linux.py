@@ -26,7 +26,7 @@ class LinuxBackend(PlatformBackend):
 
     def supports(self, capability: str) -> bool:
         """Return capabilities implemented by this backend."""
-        return capability == "system_info"
+        return capability in {"system_info", "process_execution"}
 
     @staticmethod
     def _capture(args: List[str]) -> Optional[str]:
@@ -250,10 +250,21 @@ class LinuxBackend(PlatformBackend):
     # --- Process Execution ---
 
     def run_command(self, args: List[str], cwd: Optional[Path] = None) -> Optional[subprocess.CompletedProcess]:
-        raise UnsupportedOperationError("run_command", "linux")
+        """Run a known-safe command without invoking a shell."""
+        try:
+            return subprocess.run(args, cwd=cwd, check=False)
+        except FileNotFoundError:
+            print(f" Command not available: {args[0]}")
+            return None
 
     def launch_background(self, args: List[str]) -> bool:
-        raise UnsupportedOperationError("launch_background", "linux")
+        """Start a known GUI program without using a shell."""
+        try:
+            subprocess.Popen(args)
+        except FileNotFoundError:
+            print(f" Command not available: {args[0]}")
+            return False
+        return True
 
     def run_and_capture(self, args: List[str], cwd: Optional[Path] = None, timeout: int = 10) -> Optional[subprocess.CompletedProcess]:
         raise UnsupportedOperationError("run_and_capture", "linux")
@@ -267,7 +278,7 @@ class LinuxBackend(PlatformBackend):
         raise UnsupportedOperationError("which", "linux")
 
     def get_shell(self) -> str:
-        raise UnsupportedOperationError("get_shell", "linux")
+        return os.environ.get("SHELL", "Unknown shell")
 
     def get_editor_command(self, editor_name: str) -> Optional[List[str]]:
         raise UnsupportedOperationError("get_editor_command", "linux")
