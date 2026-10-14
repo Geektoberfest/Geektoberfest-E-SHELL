@@ -188,6 +188,13 @@
     "execute the program",
     "run test.js"
   ],
+  "version": [
+    "show the e-shell release",
+    "which e-shell build is installed",
+    "display application release info",
+    "what release of e-shell is this",
+    "print the assistant release number"
+  ],
   "unknown": [
     "make the computer do something",
     "what is the meaning of life",
