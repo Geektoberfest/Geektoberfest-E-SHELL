@@ -55,8 +55,8 @@ class SafetyTestCase(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-        run_patcher = patch("commands.subprocess.run", return_value=ok())
-        popen_patcher = patch("commands.subprocess.Popen")
+        run_patcher = patch("platforms.linux.subprocess.run", return_value=ok())
+        popen_patcher = patch("platforms.linux.subprocess.Popen")
         self.run = run_patcher.start()
         self.popen = popen_patcher.start()
         self.addCleanup(run_patcher.stop)
@@ -95,7 +95,7 @@ class SafetyTestCase(unittest.TestCase):
 
 class TimedOutProgramTests(SafetyTestCase):
     def timeout(self, command="program"):
-        return subprocess.TimeoutExpired(cmd=command, timeout=commands.RUN_TIMEOUT_SECONDS)
+        return subprocess.TimeoutExpired(cmd=command, timeout=10)
 
     def test_timed_out_script_reports_the_limit_and_was_started_once(self):
         path = self.make_file("loop.py", "while True: pass")
@@ -112,7 +112,7 @@ class TimedOutProgramTests(SafetyTestCase):
         self.make_file("loop.py")
         self.run.side_effect = self.timeout()
 
-        with patch.object(commands, "RUN_TIMEOUT_SECONDS", 3):
+        with patch("platforms.linux.RUN_TIMEOUT_SECONDS", 3):
             output = self.say("run loop.py")
 
         self.assertIn("Stopped after 3 seconds", output)
@@ -242,14 +242,14 @@ class UnavailableToolTests(SafetyTestCase):
         self.popen.assert_called_once_with(["gnome-calculator"])
         self.run.assert_not_called()
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_gpu_info_without_lspci_starts_nothing(self, _which):
         output = self.call(commands.show_gpu_info)
 
         self.assertIn("lspci is not installed", output)
         self.assert_no_subprocess()
 
-    @patch("commands.shutil.which", return_value="/usr/bin/lspci")
+    @patch("platforms.linux.shutil.which", return_value="/usr/bin/lspci")
     def test_gpu_info_with_lspci_runs_only_lspci(self, _which):
         self.run.return_value = ok("00:02.0 VGA compatible controller: Example GPU\n01:00.0 Ethernet\n")
 
@@ -259,14 +259,14 @@ class UnavailableToolTests(SafetyTestCase):
         self.assertNotIn("Ethernet", output)
         self.assertEqual(self.started(), [["lspci"]])
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_running_processes_without_ps_starts_nothing(self, _which):
         output = self.call(commands.show_running_processes)
 
         self.assertIn("ps is not installed", output)
         self.assert_no_subprocess()
 
-    @patch("commands.shutil.which", return_value="/bin/ps")
+    @patch("platforms.linux.shutil.which", return_value="/bin/ps")
     def test_running_processes_reports_ps_vanishing_after_the_check(self, _which):
         self.run.side_effect = FileNotFoundError
 
@@ -275,7 +275,7 @@ class UnavailableToolTests(SafetyTestCase):
         self.assertIn("ps is not installed", output)
         self.assertEqual(self.started(), [["ps", "aux", "--sort=-%mem"]])
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_uptime_without_tool_or_proc_starts_nothing(self, _which):
         with patch.object(Path, "is_file", return_value=False):
             output = self.call(commands.show_system_uptime)
@@ -283,22 +283,22 @@ class UnavailableToolTests(SafetyTestCase):
         self.assertIn("System uptime is unavailable", output)
         self.assert_no_subprocess()
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_python_version_without_python3_reports_the_running_interpreter(self, _which):
         output = self.call(commands.show_python_version)
 
         self.assertIn("(internal)", output)
         self.assert_no_subprocess()
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_network_info_without_ip_or_ifconfig_starts_nothing(self, _which):
-        with patch("commands.socket.gethostname", side_effect=OSError):
+        with patch("platforms.linux.socket.gethostname", side_effect=OSError):
             output = self.call(commands.show_network_info)
 
         self.assertIn("Network information is unavailable", output)
         self.assert_no_subprocess()
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_logged_in_users_without_who_or_w_starts_nothing(self, _which):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("USER", None)
@@ -307,7 +307,7 @@ class UnavailableToolTests(SafetyTestCase):
         self.assertIn("Logged in users information is unavailable", output)
         self.assert_no_subprocess()
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_fastfetch_fallback_survives_every_tool_being_missing(self, _which):
         self.run.side_effect = FileNotFoundError
 
@@ -401,7 +401,7 @@ class OutsidePathTests(SafetyTestCase):
         link = parent / name
         if not make_directory_link(link, self.outside_dir):
             self.skipTest("directory links are not available on this system")
-        self.addCleanup(lambda: os.path.lexists(link) and os.rmdir(link))
+        self.addCleanup(lambda: os.path.lexists(link) and link.unlink())
         return link
 
     def fake_resolve_outside(self, name):

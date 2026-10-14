@@ -38,9 +38,6 @@ WORKSPACE_DIR = PROJECT_DIR / "workspace"
 MAX_ZIP_ENTRIES = 200
 MAX_ZIP_UNPACKED_BYTES = 20 * 1024 * 1024
 APPROVED_RUN_FILES = set()
-RUN_TIMEOUT_SECONDS = 10
-
-
 def run_command(args):
     return get_backend().run_command(args)
 
@@ -142,7 +139,7 @@ def handle_edit(words):
         filename = words[1]
         editor = words[3].lower()
     else:   # last fallback for Warning & early return
-        print("Use: open filename, edit filename, or open filename in <editor>")
+        print("Please use: edit filename, open filename, or open filename in <editor>")
         return
         
     # sanity check for available Editors in EDITORS~

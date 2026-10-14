@@ -109,7 +109,7 @@ class IntentRoutingTests(CommandTestCase):
 
     @patch("commands.predict_intent", return_value="unknown")
     def test_unknown_intent_is_reported_not_executed(self, _predict):
-        with patch("commands.subprocess.run") as run, patch("commands.subprocess.Popen") as popen:
+        with patch("platforms.linux.subprocess.run") as run, patch("platforms.linux.subprocess.Popen") as popen:
             output = self.capture_output("blorp the frobnicator")
 
         self.assertIn("did not run anything", output)
@@ -132,7 +132,7 @@ class IntentRoutingTests(CommandTestCase):
             "run missing.py",
             "rm notes.txt",
         ):
-            with self.subTest(text=text), patch("commands.subprocess.run"):
+            with self.subTest(text=text), patch("platforms.linux.subprocess.run"):
                 self.capture_output(text)
 
         predict.assert_not_called()
@@ -166,8 +166,8 @@ class IntentRoutingTests(CommandTestCase):
             with self.subTest(text=text):
                 self.assertEqual(predict_intent(text), "unknown")
 
-    @patch("commands.subprocess.run")
-    @patch("commands.subprocess.Popen")
+    @patch("platforms.linux.subprocess.run")
+    @patch("platforms.linux.subprocess.Popen")
     def test_gibberish_runs_nothing_end_to_end(self, popen, run):
         output = self.capture_output("asdf qwerty")
 
@@ -178,8 +178,8 @@ class IntentRoutingTests(CommandTestCase):
 
 class BlockedCommandTests(CommandTestCase):
     @patch("commands.predict_intent")
-    @patch("commands.subprocess.Popen")
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.Popen")
+    @patch("platforms.linux.subprocess.run")
     def test_every_blocked_command_is_stopped_before_anything_runs(self, run, popen, predict):
         for name in sorted(commands.BLOCKED_COMMANDS):
             with self.subTest(command=name):
@@ -198,7 +198,7 @@ class BlockedCommandTests(CommandTestCase):
 
         self.assertTrue(documented <= commands.BLOCKED_COMMANDS)
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_blocking_ignores_letter_case_and_extra_spacing(self, run):
         for text in ("RM file.txt", "Sudo ls", "SHUTDOWN now", "  rm   -rf  ", "CHMOD 777 x"):
             with self.subTest(text=text):
@@ -206,7 +206,7 @@ class BlockedCommandTests(CommandTestCase):
 
         run.assert_not_called()
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_only_the_workspace_make_executable_phrase_changes_permissions(self, run):
         self.assertIn("Blocked dangerous command.", self.capture_output("chmod +x script.sh"))
         self.assertIn("Blocked dangerous command.", self.capture_output("chmod 777 script.sh"))
@@ -330,7 +330,7 @@ class FileActionSafetyTests(CommandTestCase):
         self.assertIn("Please use: copy source to destination", output)
         self.assertFalse((self.project_dir / "b.txt").exists())
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_edit_usage_is_explained_for_malformed_phrases(self, run):
         for text in ("edit", "edit a.py b.py"):
             with self.subTest(text=text):
@@ -338,27 +338,27 @@ class FileActionSafetyTests(CommandTestCase):
 
         run.assert_not_called()
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_edit_blocks_unsafe_names_before_launching_an_editor(self, run):
         output = self.capture_output('edit "../outside.py"')
 
         self.assertIn("Blocked unsafe filename", output)
         run.assert_not_called()
 
-    @patch("commands.subprocess.run", side_effect=FileNotFoundError)
+    @patch("platforms.linux.subprocess.run", side_effect=FileNotFoundError)
     def test_missing_editor_shows_a_friendly_warning(self, _run):
         output = self.capture_output("edit notes.py")
 
         self.assertIn("Editor not available: nano", output)
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_make_executable_requires_an_existing_workspace_file(self, run):
         output = self.capture_output("make missing.sh executable")
 
         self.assertIn("File does not exist in workspace: missing.sh", output)
         run.assert_not_called()
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_make_executable_blocks_unsafe_names(self, run):
         output = self.capture_output('make "../x.sh" executable')
 
@@ -373,7 +373,7 @@ class RunFileSafetyTests(CommandTestCase):
         path.write_text(text)
         return path
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_run_is_cancelled_unless_the_user_types_yes(self, run):
         self.make_file("hello.py")
 
@@ -384,7 +384,7 @@ class RunFileSafetyTests(CommandTestCase):
         run.assert_not_called()
         self.assertEqual(commands.APPROVED_RUN_FILES, set())
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_run_accepts_yes_in_any_case_and_remembers_the_approval(self, run):
         path = self.make_file("hello.py")
         run.return_value = commands.subprocess.CompletedProcess([], 0, stdout="hi\n", stderr="")
@@ -397,7 +397,7 @@ class RunFileSafetyTests(CommandTestCase):
         self.assertEqual(run.call_count, 2)
         self.assertIn(path, commands.APPROVED_RUN_FILES)
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_approval_for_one_file_does_not_cover_another(self, run):
         self.make_file("a.py")
         self.make_file("b.py")
@@ -409,7 +409,7 @@ class RunFileSafetyTests(CommandTestCase):
 
         self.assertEqual(prompt.call_count, 2)
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_run_needs_exactly_one_file_name(self, run):
         for text in ("run", "run a.py b.py"):
             with self.subTest(text=text):
@@ -417,7 +417,7 @@ class RunFileSafetyTests(CommandTestCase):
 
         run.assert_not_called()
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_run_reports_missing_files_without_prompting(self, run):
         with patch("builtins.input") as prompt:
             output = self.capture_output("run missing.py")
@@ -426,7 +426,7 @@ class RunFileSafetyTests(CommandTestCase):
         prompt.assert_not_called()
         run.assert_not_called()
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_run_blocks_unsafe_names_without_prompting(self, run):
         with patch("builtins.input") as prompt:
             output = self.capture_output('run "../hello.py"')
@@ -435,7 +435,7 @@ class RunFileSafetyTests(CommandTestCase):
         prompt.assert_not_called()
         run.assert_not_called()
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_unsupported_file_types_are_not_run(self, run):
         for name in ("notes.txt", "data.json", "program", "tool.exe", "page.html"):
             with self.subTest(name=name):
@@ -446,7 +446,7 @@ class RunFileSafetyTests(CommandTestCase):
 
         run.assert_not_called()
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_each_supported_type_uses_its_documented_command(self, run):
         run.return_value = commands.subprocess.CompletedProcess([], 0, stdout="", stderr="")
         ws = self.workspace_dir
@@ -473,7 +473,7 @@ class RunFileSafetyTests(CommandTestCase):
                 actual = [call.args[0] for call in run.call_args_list]
                 self.assertEqual(actual, command_lists(name))
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_run_never_uses_a_shell_and_always_has_a_timeout(self, run):
         self.make_file("hello.py")
         run.return_value = commands.subprocess.CompletedProcess([], 0, stdout="", stderr="")
@@ -483,7 +483,7 @@ class RunFileSafetyTests(CommandTestCase):
 
         kwargs = run.call_args.kwargs
         self.assertNotIn("shell", kwargs)
-        self.assertEqual(kwargs["timeout"], commands.RUN_TIMEOUT_SECONDS)
+        self.assertEqual(kwargs["timeout"], 10)
         self.assertIsInstance(run.call_args.args[0], list)
 
     @patch(
@@ -498,7 +498,7 @@ class RunFileSafetyTests(CommandTestCase):
 
         self.assertIn("Stopped after 10 seconds", output)
 
-    @patch("commands.subprocess.run", side_effect=FileNotFoundError)
+    @patch("platforms.linux.subprocess.run", side_effect=FileNotFoundError)
     def test_missing_interpreter_shows_a_friendly_warning(self, _run):
         self.make_file("hello.py")
 
@@ -507,7 +507,7 @@ class RunFileSafetyTests(CommandTestCase):
 
         self.assertIn("Command not available: python3", output)
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_program_errors_are_printed(self, run):
         self.make_file("boom.py", "raise SystemExit(1)")
         run.return_value = commands.subprocess.CompletedProcess(

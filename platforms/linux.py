@@ -45,8 +45,10 @@ class LinuxBackend(PlatformBackend):
         return capability in {"system_info", "process_execution", "file_operations", "gui_editors"}
 
     @staticmethod
-    def _capture(args: List[str]) -> Optional[str]:
+    def _capture(args: List[str], check_available: bool = True) -> Optional[str]:
         """Run a known-safe command and return its standard output."""
+        if check_available and not shutil.which(args[0]):
+            return None
         try:
             result = subprocess.run(args, capture_output=True, text=True, check=False)
         except FileNotFoundError:
@@ -131,6 +133,8 @@ class LinuxBackend(PlatformBackend):
             return output
 
         uptime_file = Path("/proc/uptime")
+        if not uptime_file.is_file():
+            return "System uptime is unavailable (uptime not installed)."
         try:
             total_seconds = float(uptime_file.read_text().split()[0])
             hours, remainder = divmod(int(total_seconds), 3600)
@@ -246,7 +250,7 @@ class LinuxBackend(PlatformBackend):
         sections = ["fastfetch is not installed. Showing safe fallback system information instead."]
         for command in (["uname", "-a"], ["lscpu"], ["free", "-h"], ["df", "-h"]):
             sections.append(f"$ {' '.join(command)}")
-            sections.append(self._capture(command) or f" Command not available: {command[0]}")
+            sections.append(self._capture(command, check_available=False) or f" Command not available: {command[0]}")
         return "\n\n".join(sections)
 
     # --- File Operations ---
@@ -278,11 +282,7 @@ class LinuxBackend(PlatformBackend):
 
         executable = editor_config["command"][0]
         if not self.which(executable):
-            print(
-                f"Editor '{editor}' is not installed or is not on PATH. "
-                "Install it with your Linux distribution's package manager, "
-                "or choose another installed editor."
-            )
+            print(f"Editor not available: {editor}")
             return False
         if editor_config["gui"] and not self.has_display():
             print(f"'{editor}' needs a graphical display and none was found. Try nano, vim, or micro.")
@@ -300,6 +300,9 @@ class LinuxBackend(PlatformBackend):
                 )
             else:
                 subprocess.run(args, check=False)
+        except FileNotFoundError:
+            print(f"Editor not available: {editor}")
+            return False
         except OSError as error:
             print(f"Could not open {editor}: {error}")
             return False
@@ -307,13 +310,13 @@ class LinuxBackend(PlatformBackend):
 
     def run_file(self, path: Path) -> bool:
         runners = {
-            ".py": lambda: self.run_and_capture(["python3", str(path)]),
+            ".py": lambda: self.run_and_capture(["python3", str(path)], timeout=RUN_TIMEOUT_SECONDS),
             ".c": lambda: self._compile_then_run(["gcc", str(path), "-o", str(path.with_suffix(""))], [str(path.with_suffix(""))]),
             ".cpp": lambda: self._compile_then_run(["g++", str(path), "-o", str(path.with_suffix(""))], [str(path.with_suffix(""))]),
             ".java": lambda: self._compile_then_run(["javac", str(path)], ["java", "-cp", str(path.parent), path.stem]),
-            ".js": lambda: self.run_and_capture(["node", str(path)]),
-            ".sh": lambda: self.run_and_capture(["bash", str(path)]),
-            ".go": lambda: self.run_and_capture(["go", "run", str(path)]),
+            ".js": lambda: self.run_and_capture(["node", str(path)], timeout=RUN_TIMEOUT_SECONDS),
+            ".sh": lambda: self.run_and_capture(["bash", str(path)], timeout=RUN_TIMEOUT_SECONDS),
+            ".go": lambda: self.run_and_capture(["go", "run", str(path)], timeout=RUN_TIMEOUT_SECONDS),
             ".rs": lambda: self._compile_then_run(["rustc", str(path), "-o", str(path.with_suffix(""))], [str(path.with_suffix(""))]),
         }
         runner = runners.get(path.suffix)

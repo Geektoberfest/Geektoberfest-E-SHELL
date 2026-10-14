@@ -106,7 +106,7 @@ class FileOperationTests(unittest.TestCase):
                 output = self.capture_output(f'run "{name}"')
                 self.assertIn("Blocked unsafe filename", output)
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_edit_file_uses_only_allowed_editors_in_workspace(self, run):
         output = self.capture_output("open notes.py in nano")
 
@@ -114,13 +114,13 @@ class FileOperationTests(unittest.TestCase):
         run.assert_called_once_with(["nano", str(self.workspace_dir / "notes.py")], check=False)
         self.assertEqual(output, "")
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_edit_file_blocks_other_editors(self, run):
         output = self.capture_output("open notes.py in word")
         self.assertIn("Unsupported editor", output)
 
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_make_executable_uses_chmod_plus_x_only_in_workspace(self, run):
         self.workspace_dir.mkdir()
         script = self.workspace_dir / "script.sh"
@@ -135,11 +135,11 @@ class FileOperationTests(unittest.TestCase):
         self.workspace_dir.mkdir()
         script = self.workspace_dir / "script.sh"
         script.write_text("echo hello")
-        with patch("commands.subprocess.run", side_effect=FileNotFoundError):
+        with patch("platforms.linux.subprocess.run", side_effect=FileNotFoundError):
             output = self.capture_output("make script.sh executable")
-        self.assertIn("⚠️ Command not available: chmod", output)
+        self.assertIn("Command not available: chmod", output)
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_run_python_file_asks_first_and_captures_output(self, run):
         self.workspace_dir.mkdir()
         script = self.workspace_dir / "hello.py"
@@ -161,7 +161,7 @@ class FileOperationTests(unittest.TestCase):
         )
         self.assertIn("hello", output)
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_run_c_file_prints_compiler_errors(self, run):
         self.workspace_dir.mkdir()
         source = self.workspace_dir / "bad.c"
@@ -180,7 +180,7 @@ class FileOperationTests(unittest.TestCase):
         self.assertIn("Compiler errors are shown above.", output)
         self.assertEqual(run.call_count, 1)
 
-    @patch("commands.subprocess.run")
+    @patch("platforms.linux.subprocess.run")
     def test_dangerous_commands_are_blocked(self, run):
         for text in (
             "rm file.txt",
@@ -197,13 +197,13 @@ class FileOperationTests(unittest.TestCase):
 
 
 class CommandRoutingTests(unittest.TestCase):
-    @patch("commands.run_command")
+    @patch("platforms.linux.LinuxBackend._capture", return_value="Python 3")
     @patch("commands.predict_intent", return_value="python_version")
-    def test_python_version_uses_safe_argument_list(self, _predict_intent, run_command):
+    def test_python_version_uses_safe_argument_list(self, _predict_intent, capture):
         with redirect_stdout(io.StringIO()):
             commands.handle_command("python version")
 
-        run_command.assert_called_once_with(["python3", "--version"])
+        capture.assert_called_once_with(["python3", "--version"])
 
     @patch("commands.launch_background")
     @patch("commands.predict_intent", return_value="open_firefox")
@@ -213,15 +213,14 @@ class CommandRoutingTests(unittest.TestCase):
 
         launch_background.assert_called_once_with(["firefox"])
 
-    @patch("commands.run_command")
-    @patch("commands.shutil.which", return_value=None)
-    def test_fastfetch_fallback_uses_safe_commands(self, _which, run_command):
+    @patch("platforms.linux.LinuxBackend._capture", side_effect=[None, "", "", "", ""])
+    def test_fastfetch_fallback_uses_safe_commands(self, capture):
         with redirect_stdout(io.StringIO()):
             commands.show_fastfetch_info()
 
         self.assertEqual(
-            [call.args[0] for call in run_command.call_args_list],
-            [["uname", "-a"], ["lscpu"], ["free", "-h"], ["df", "-h"]],
+            [call.args[0] for call in capture.call_args_list],
+            [["fastfetch"], ["uname", "-a"], ["lscpu"], ["free", "-h"], ["df", "-h"]],
         )
 
     @patch("commands.run_command")
@@ -241,14 +240,14 @@ class CommandRoutingTests(unittest.TestCase):
         run_command.assert_not_called()
         launch_background.assert_not_called()
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_unavailable_ps_shows_friendly_warning(self, _which):
         output = io.StringIO()
         with redirect_stdout(output):
             commands.show_running_processes()
-        self.assertIn("⚠️ ps is not installed", output.getvalue())
+        self.assertIn("ps is not installed", output.getvalue())
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_unavailable_uptime_uses_proc_fallback(self, _which):
         output = io.StringIO()
         with patch.object(Path, "is_file", return_value=True), patch.object(
@@ -257,23 +256,23 @@ class CommandRoutingTests(unittest.TestCase):
             commands.show_system_uptime()
         self.assertIn("System uptime (fallback)", output.getvalue())
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_unavailable_uptime_fails_gracefully_without_proc(self, _which):
         output = io.StringIO()
         with patch.object(Path, "is_file", return_value=False), redirect_stdout(output):
             commands.show_system_uptime()
-        self.assertIn("⚠️ System uptime is unavailable", output.getvalue())
+        self.assertIn("System uptime is unavailable", output.getvalue())
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_unavailable_df_uses_disk_usage_fallback(self, _which):
         from collections import namedtuple
         Usage = namedtuple("Usage", ["total", "used", "free"])
         output = io.StringIO()
-        with patch("commands.shutil.disk_usage", return_value=Usage(100 * 1024**3, 40 * 1024**3, 60 * 1024**3)), redirect_stdout(output):
+        with patch("platforms.linux.shutil.disk_usage", return_value=Usage(100 * 1024**3, 40 * 1024**3, 60 * 1024**3)), redirect_stdout(output):
             commands.show_disk_usage()
         self.assertIn("Root filesystem (fallback)", output.getvalue())
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_unavailable_free_uses_proc_meminfo_fallback(self, _which):
         output = io.StringIO()
         with patch.object(Path, "is_file", return_value=True), patch.object(
@@ -282,14 +281,14 @@ class CommandRoutingTests(unittest.TestCase):
             commands.show_memory_usage()
         self.assertIn("Memory (fallback from /proc/meminfo)", output.getvalue())
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_unavailable_kernel_info_uses_platform_fallback(self, _which):
         output = io.StringIO()
         with redirect_stdout(output):
             commands.show_kernel_info()
         self.assertIn("Kernel info (fallback)", output.getvalue())
 
-    @patch("commands.shutil.which", return_value=None)
+    @patch("platforms.linux.shutil.which", return_value=None)
     def test_unavailable_whoami_uses_fallback(self, _which):
         output = io.StringIO()
         with redirect_stdout(output):
