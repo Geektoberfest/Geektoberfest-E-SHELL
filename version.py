@@ -13,6 +13,7 @@ also prints bunch of other useful information like dependencies and other system
 
 """
 import os
+import platform
 import time
 START = time.monotonic() # instant internal time clock measured
 import re
@@ -23,6 +24,7 @@ __version__ = "1.0.0"
 
 # It will be the second the program is launched ( yk __ __ thingy in python )
 REQUIREMENTS = Path(__file__).resolve().parent / "requirements.txt"
+LOGO = Path(__file__).resolve().parent / "logo.txt"
 
 # Matches the bare distribution name and stops before ==, >=, [extras] or ;markers.
 # the REGEX :D
@@ -119,3 +121,47 @@ def usage_line():
         peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
         line += f" | peak memory {peak_mb:.1f} MB"
     return line
+
+
+# Fallback banner used when logo.txt cannot be read, so startup never crashes.
+_FALLBACK_LOGO = r"""
+  ______      _____ _          _ _
+ |  ____|    / ____| |        | | |
+ | |__ _____| (___ | |__   ___| | |
+ |  __|______\___ \| '_ \ / _ \ | |
+ | |____     ____) | | | |  __/ | |
+ |______|   |_____/|_| |_|\___|_|_|
+"""
+
+
+def load_logo() -> str:
+    """Read the ASCII logo from ``logo.txt`` next to this module.
+
+    Returns the logo as a string with trailing blank lines removed. If the
+    file is missing or unreadable, a small built-in fallback is returned so
+    that the banner still prints.
+    """
+    try:
+        return LOGO.read_text(encoding="utf-8").rstrip()
+    except OSError:
+        return _FALLBACK_LOGO.strip("\n")
+
+
+def show_intro() -> None:
+    """Print the startup banner: the E-SHELL logo, version and runtime info.
+
+    Everything below the logo is cosmetic, so failures are swallowed rather
+    than aborting the shell before the user can type a command.
+    """
+    print(load_logo())
+    print(f"  E-SHELL v{__version__}")
+
+    try:
+        print(f"  Python {platform.python_version()} on {platform.system()}")
+    except Exception:  # pragma: no cover - platform info is best effort
+        pass
+
+    print()
+    print("  Type 'help' to see available commands")
+    print("  Type 'exit' to quit")
+    print()
