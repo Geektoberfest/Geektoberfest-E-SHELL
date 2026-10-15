@@ -186,7 +186,13 @@ def choose_default_editor():
     if usable:
         return max(usable, key=usable.get)
 
-    return "nano"
+    for name, config in editors.items():
+        if backend.which(config["command"][0]) and (
+            not config["gui"] or backend.has_display()
+        ):
+            return name
+
+    return next(iter(editors), "nano")
 
 
 def record_editor_use(name):
@@ -569,7 +575,11 @@ def handle_command(text):
         handle_copy(words)
         return
     if first_word == "edit" or (
-        first_word == "open" and len(words) == 4 and words[2].lower() == "in"
+        first_word == "open"
+        and (
+            (len(words) == 2 and words[1].lower() != "firefox")
+            or (len(words) == 4 and words[2].lower() == "in")
+        )
     ):
         handle_edit(words)
         return

@@ -24,6 +24,20 @@ from platforms.base import PlatformBackend
 from platforms.errors import UnsupportedOperationError
 
 
+EDITORS = {
+    "notepad": {"command": ["notepad.exe"], "gui": True},
+    "code": {"command": ["code"], "gui": True},
+    "vscode": {"command": ["code"], "gui": True},
+    "notepad++": {"command": ["notepad++.exe"], "gui": True},
+    "sublime": {"command": ["subl"], "gui": True},
+    "pycharm": {"command": ["pycharm64.exe"], "gui": True},
+    "idle": {"command": ["idle"], "gui": True},
+    "vim": {"command": ["vim"], "gui": False},
+    "nvim": {"command": ["nvim"], "gui": False},
+    "micro": {"command": ["micro"], "gui": False},
+    "helix": {"command": ["hx"], "gui": False},
+    "emacs": {"command": ["emacs", "-nw"], "gui": False},
+}
 RUN_TIMEOUT_SECONDS = 10
 BLOCKED_NAME_PARTS = ("/", "\\", "..", "~", "*", "?", "&", "|", ";", "$", "`", ">", "<", ":")
 
@@ -35,7 +49,7 @@ class WindowsBackend(PlatformBackend):
         raise UnsupportedOperationError(operation, "windows")
 
     def supports(self, capability: str) -> bool:
-        return capability in {"system_info", "file_operations"}
+        return capability in {"system_info", "file_operations", "gui_editors"}
 
     def _compile_then_run(self, compile_args: List[str], run_args: List[str]) -> None:
         compile_result = self.run_and_capture(compile_args, timeout=RUN_TIMEOUT_SECONDS)
@@ -192,7 +206,40 @@ class WindowsBackend(PlatformBackend):
         return self._unsupported("make_executable")
 
     def edit_file(self, path: Path, editor: str) -> bool:
-        return self._unsupported("edit_file")
+        editor_config = EDITORS.get(editor)
+        if editor_config is None:
+            return False
+
+        executable = editor_config["command"][0]
+        resolved_executable = self.which(executable)
+        if not resolved_executable:
+            print(f"Editor not available: {editor}")
+            return False
+
+        args = [resolved_executable, *editor_config["command"][1:], str(path)]
+        if Path(resolved_executable).suffix.lower() in {".bat", ".cmd"}:
+            args = [
+                os.environ.get("COMSPEC", "cmd.exe"),
+                "/d",
+                "/c",
+                "call",
+                *args,
+            ]
+        try:
+            if editor_config["gui"]:
+                subprocess.Popen(
+                    args,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+                )
+            else:
+                subprocess.run(args, check=False)
+        except OSError as error:
+            print(f"Could not open {editor}: {error}")
+            return False
+        return True
 
     def run_file(self, path: Path) -> bool:
         output_path = path.with_suffix(".exe")
@@ -264,22 +311,24 @@ class WindowsBackend(PlatformBackend):
     # --- Platform Capabilities ---
 
     def has_display(self) -> bool:
-        return self._unsupported("has_display")
+        return True
 
     def which(self, command: str) -> Optional[str]:
-        return self._unsupported("which")
+        return shutil.which(command)
 
     def get_shell(self) -> str:
         return self._unsupported("get_shell")
 
     def get_editor_command(self, editor_name: str) -> Optional[List[str]]:
-        return self._unsupported("get_editor_command")
+        editor = EDITORS.get(editor_name)
+        return editor["command"] if editor else None
 
     def is_editor_gui(self, editor_name: str) -> bool:
-        return self._unsupported("is_editor_gui")
+        editor = EDITORS.get(editor_name)
+        return bool(editor and editor["gui"])
 
     def get_supported_editors(self) -> Dict[str, Dict[str, Any]]:
-        return self._unsupported("get_supported_editors")
+        return EDITORS.copy()
 
     # --- Utility ---
 
