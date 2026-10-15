@@ -61,8 +61,8 @@ class WorkspaceTestCase(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-        run_patcher = patch("commands.subprocess.run", return_value=ok())
-        popen_patcher = patch("commands.subprocess.Popen")
+        run_patcher = patch("platforms.linux.subprocess.run", return_value=ok())
+        popen_patcher = patch("platforms.linux.subprocess.Popen")
         self.run = run_patcher.start()
         self.popen = popen_patcher.start()
         self.addCleanup(run_patcher.stop)
@@ -99,7 +99,7 @@ class GoAndRustTests(WorkspaceTestCase):
 
         self.assertIn("hello from go", output)
         self.assertEqual(self.started(), [["go", "run", str(path)]])
-        self.assertEqual(self.run.call_args.kwargs["timeout"], commands.RUN_TIMEOUT_SECONDS)
+        self.assertEqual(self.run.call_args.kwargs["timeout"], 10)
         self.assertNotIn("shell", self.run.call_args.kwargs)
 
     def test_rust_file_is_compiled_then_the_binary_is_run(self):
@@ -586,7 +586,7 @@ class UnzipTests(WorkspaceTestCase):
         link = self.workspace_dir / "linked"
         if not make_directory_link(link, outside):
             self.skipTest("directory links are not available on this system")
-        self.addCleanup(lambda: os.path.lexists(link) and os.rmdir(link))
+        self.addCleanup(lambda: os.path.lexists(link) and link.unlink())
         self.make_zip(entries=[("good.txt", b"good"), ("linked/evil.txt", b"evil")])
 
         output = self.say("unzip project.zip")

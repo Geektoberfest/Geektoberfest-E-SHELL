@@ -1,10 +1,8 @@
 import datetime
-import getpass
 import os
 import platform
 import shlex
 import shutil
-import socket
 import stat
 import subprocess
 import sys
@@ -12,6 +10,7 @@ import zipfile
 from pathlib import Path
 
 from model import predict_intent
+from platforms import get_backend
 from version import __version__, dependency_lines, usage_line
 import settings
 
@@ -293,19 +292,11 @@ def show_system_tools_status():
 
 
 def run_command(args):
-    """Run a known-safe command without invoking a shell."""
-    try:
-        subprocess.run(args, check=False)
-    except FileNotFoundError:
-        print(f"⚠️ Command not available: {args[0]}")
+    return get_backend().run_command(args)
 
 
 def launch_background(args):
-    """Start a known GUI program without using a shell."""
-    try:
-        subprocess.Popen(args)
-    except FileNotFoundError:
-        print(f"⚠️ Command not available: {args[0]}")
+    return get_backend().launch_background(args)
 
 
 def validate_filename(name):
@@ -335,82 +326,6 @@ def get_safe_path(filename):
         return None
 
     return path
-
-
-def print_completed_process(result):
-    if result.stdout:
-        print(result.stdout, end="")
-    if result.stderr:
-        print("Errors:")
-        print(result.stderr, end="")
-
-
-def run_and_print(args, cwd=None):
-    try:
-        result = subprocess.run(
-            args,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=RUN_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except FileNotFoundError:
-        print(f"⚠️ Command not available: {args[0]}")
-        return None
-    except subprocess.TimeoutExpired:
-        print(f"Stopped after {RUN_TIMEOUT_SECONDS} seconds because the program took too long.")
-        return None
-
-    print_completed_process(result)
-    return result
-
-
-def compile_then_run(compile_args, run_args, cwd=None):
-    compile_result = run_and_print(compile_args, cwd=cwd)
-    if compile_result is None:
-        return
-    if compile_result.returncode != 0:
-        print("Compiler errors are shown above.")
-        return
-
-    run_and_print(run_args, cwd=cwd)
-
-
-def run_python_file(path):
-    run_and_print(["python3", str(path)])
-
-
-def run_c_file(path):
-    output_path = path.with_suffix("")
-    compile_then_run(["gcc", str(path), "-o", str(output_path)], [str(output_path)])
-
-
-def run_cpp_file(path):
-    output_path = path.with_suffix("")
-    compile_then_run(["g++", str(path), "-o", str(output_path)], [str(output_path)])
-
-
-def run_java_file(path):
-    class_name = path.stem
-    compile_then_run(["javac", str(path)], ["java", "-cp", str(WORKSPACE_DIR), class_name])
-
-
-def run_js_file(path):
-    run_and_print(["node", str(path)])
-
-
-def run_shell_file(path):
-    run_and_print(["bash", str(path)])
-
-
-def run_go_file(path):
-    run_and_print(["go", "run", str(path)])
-
-
-def run_rust_file(path):
-    output_path = path.with_suffix("")
-    compile_then_run(["rustc", str(path), "-o", str(output_path)], [str(output_path)])
 
 
 def print_help():
@@ -473,6 +388,7 @@ def parse_words(text):
 
 def handle_edit(words):
     command = words[0].lower()
+    backend = get_backend()
 
     if len(words) == 2 and command in {"edit", "open"}: # two values to value through
         filename = words[1]
@@ -481,12 +397,12 @@ def handle_edit(words):
         filename = words[1]
         editor = words[3].lower()
     else:   # last fallback for Warning & early return
-        print("Use: open filename, edit filename, or open filename in <editor>")
+        print("Please use: edit filename, open filename, or open filename in <editor>")
         return
         
     # sanity check for available Editors in EDITORS~
-    if editor not in EDITORS:
-        supported = ", ".join(EDITORS)
+    if editor not in backend.get_supported_editors():
+        supported = ", ".join(backend.get_supported_editors())
         print(f"Unsupported editor. Supported editors: {supported}.")
         return
 
@@ -494,50 +410,18 @@ def handle_edit(words):
     if not path:
         return
 
-    editor_config = EDITORS[editor]
-    executable = editor_config["command"][0]
-
-    # warn-suggestion if Text editor is available in EDITOR but not on user's system
-    if not shutil.which(executable):
-        print(
-            f"Editor '{editor}' is not installed or is not on PATH. "
-            "Install it with your Linux distribution's package manager, "
-            "or choose another installed editor."
-        )
-        return
-    # display sanity check
-    if editor_config["gui"] and not has_display():
-        print(f"'{editor}' needs a graphical display and none was found. Try nano, vim, or micro.")
-        return
-
-    # taking args to run subprocess ( true cmd )
-    args = [*editor_config["command"], str(path)]
-
-    try:
-        # sanity check for GUI vs Terminal base
-        if editor_config["gui"]:
-            subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                 stderr=subprocess.DEVNULL, start_new_session=True)
-            # with new sessiona and cancels warning prompts
-        else:
-            subprocess.run(args, check=False)
-    except OSError as error:
-        print(f"Could not open {editor}: {error}")
-        return
-
-    record_editor_use(editor)
+    if backend.edit_file(path, editor):
+        record_editor_use(editor)
 
 
 # the best sanity check
 # helpful if somebody is SSH into Linux based machine or using WSLg (wsl2 might give windowsub-pop)
-def has_display():
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-
-
 def choose_default_editor():
     # if user has set a global default with envVAR
     override = os.environ.get("E_SHELL_DEFAULT_EDITOR", "").strip().lower()
-    if override in EDITORS and shutil.which(EDITORS[override]["command"][0]):
+    backend = get_backend()
+    editors = backend.get_supported_editors()
+    if override in editors and backend.which(editors[override]["command"][0]):
         return override
     
     # called from settings
@@ -549,11 +433,11 @@ def choose_default_editor():
     usable = {
         name: count
         for name, count in usage.items()
-        if name in EDITORS
+        if name in editors
         and isinstance(count, int)
         and count > 0
-        and shutil.which(EDITORS[name]["command"][0])
-        and (not EDITORS[name]["gui"] or has_display())
+        and backend.which(editors[name]["command"][0])
+        and (not editors[name]["gui"] or backend.has_display())
     }
 
     if usable:
@@ -587,11 +471,8 @@ def handle_make_executable(words):
         print(f"File does not exist in workspace: {path.name}")
         return
 
-    try:
-        subprocess.run(["chmod", "+x", str(path)], check=False)
+    if get_backend().make_executable(path):
         print(f"Made executable: {path.name}")
-    except FileNotFoundError:
-        print("⚠️ Command not available: chmod")
 
 
 def ask_before_first_run(path):
@@ -623,22 +504,8 @@ def handle_run_file(words):
     if not ask_before_first_run(path):
         return
 
-    runners = {
-        ".py": run_python_file,
-        ".c": run_c_file,
-        ".cpp": run_cpp_file,
-        ".java": run_java_file,
-        ".js": run_js_file,
-        ".sh": run_shell_file,
-        ".go": run_go_file,
-        ".rs": run_rust_file,
-    }
-    runner = runners.get(path.suffix)
-    if not runner:
+    if not get_backend().run_file(path):
         print("Unsupported file type. Supported: .py, .c, .cpp, .java, .js, .sh, .go, .rs")
-        return
-
-    runner(path)
 
 
 class ZipExtractionError(Exception):
@@ -795,8 +662,8 @@ def handle_touch(words):
 
     path = safe_name(words[1], "file")
     if path:
-        path.touch(exist_ok=True)
-        print(f"Created file: {path.name}")
+        if get_backend().create_file(path):
+            print(f"Created file: {path.name}")
 
 
 def handle_mkdir(words):
@@ -812,8 +679,8 @@ def handle_mkdir(words):
         return
 
     try:
-        path.mkdir(exist_ok=False)
-        print(f"Created folder: {path.name}")
+        if get_backend().create_directory(path):
+            print(f"Created folder: {path.name}")
     except FileExistsError:
         print(f"Folder already exists: {path.name}")
 
@@ -834,242 +701,73 @@ def handle_copy(words):
         print(f"Source file does not exist: {source.name}")
         return
 
-    # copy2 preserves useful metadata while still avoiding shell=True entirely.
-    shutil.copy2(source, destination)
-    print(f"Copied {source.name} to {destination.name}")
+    if get_backend().copy_file(source, destination):
+        print(f"Copied {source.name} to {destination.name}")
 
 
 def show_gpu_info():
-    if not shutil.which("lspci"):
-        print("⚠️ lspci is not installed, so GPU information is unavailable.")
-        return
-
-    result = subprocess.run(["lspci"], capture_output=True, text=True, check=False)
-    gpu_lines = [
-        line
-        for line in result.stdout.splitlines()
-        if any(word in line.lower() for word in ("vga", "3d", "display"))
-    ]
-    print("\n".join(gpu_lines) if gpu_lines else "No GPU entry found.")
+    print(get_backend().get_gpu_info())
 
 
 def show_battery_info():
-    batteries = sorted(Path("/sys/class/power_supply").glob("BAT*"))
-    if not batteries:
-        print("No battery information found.")
-        return
-
-    for battery in batteries:
-        capacity = battery / "capacity"
-        status = battery / "status"
-        capacity_text = capacity.read_text().strip() if capacity.exists() else "unknown"
-        status_text = status.read_text().strip() if status.exists() else "unknown"
-        print(f"{battery.name}: {capacity_text}% ({status_text})")
+    print(get_backend().get_battery_info())
 
 
 def show_environment_info():
-    for key in ("USER", "HOME", "SHELL", "LANG", "TERM", "PATH"):
-        print(f"{key}={os.environ.get(key, '')}")
+    for key, value in get_backend().get_environment_info().items():
+        print(f"{key}={value}")
 
 
 def show_running_processes():
-    if not shutil.which("ps"):
-        print("⚠️ ps is not installed, so running processes information is unavailable.")
-        return
-
-    try:
-        result = subprocess.run(["ps", "aux", "--sort=-%mem"], capture_output=True, text=True, check=False)
-        lines = result.stdout.splitlines()[:11]  # header plus the 10 largest processes
-        print("\n".join(lines))
-    except FileNotFoundError:
-        print("⚠️ ps is not installed, so running processes information is unavailable.")
+    print(get_backend().get_running_processes())
 
 
 def show_disk_usage():
-    if shutil.which("df"):
-        run_command(["df", "-h"])
-        return
-
-    try:
-        usage = shutil.disk_usage("/")
-        total_gb = usage.total / (1024 ** 3)
-        used_gb = usage.used / (1024 ** 3)
-        free_gb = usage.free / (1024 ** 3)
-        print(f"Root filesystem (fallback): {used_gb:.1f}G used, {free_gb:.1f}G free, {total_gb:.1f}G total (df not installed)")
-    except Exception:
-        print("⚠️ Disk usage information is unavailable (df is not installed).")
+    print(get_backend().get_disk_usage())
 
 
 def show_memory_usage():
-    if shutil.which("free"):
-        run_command(["free", "-h"])
-        return
-
-    meminfo = Path("/proc/meminfo")
-    if meminfo.is_file():
-        try:
-            lines = meminfo.read_text().splitlines()
-            mem_data = {}
-            for line in lines:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    mem_data[parts[0].strip()] = parts[1].strip()
-            total = mem_data.get("MemTotal")
-            available = mem_data.get("MemAvailable", mem_data.get("MemFree"))
-            if total and available:
-                print(f"Memory (fallback from /proc/meminfo): Total: {total}, Available: {available} (free not installed)")
-                return
-        except OSError:
-            pass
-
-    print("⚠️ Memory usage information is unavailable (free is not installed).")
+    print(get_backend().get_memory_usage())
 
 
 def show_system_uptime():
-    if shutil.which("uptime"):
-        run_command(["uptime"])
-        return
-
-    uptime_file = Path("/proc/uptime")
-    if uptime_file.is_file():
-        try:
-            total_seconds = float(uptime_file.read_text().split()[0])
-            hours, remainder = divmod(int(total_seconds), 3600)
-            minutes, _ = divmod(remainder, 60)
-            days, hours = divmod(hours, 24)
-            if days:
-                print(f"System uptime (fallback): {days} day(s), {hours} hour(s), {minutes} minute(s)")
-            else:
-                print(f"System uptime (fallback): {hours} hour(s), {minutes} minute(s)")
-            return
-        except (ValueError, OSError, IndexError):
-            pass
-
-    print("⚠️ System uptime is unavailable (uptime not installed).")
+    print(get_backend().get_system_uptime())
 
 
 def show_kernel_info():
-    if shutil.which("uname"):
-        run_command(["uname", "-a"])
-        return
-
-    print(f"Kernel info (fallback): {platform.platform()}")
+    print(get_backend().get_kernel_info())
 
 
 def show_cpu_info():
-    if shutil.which("lscpu"):
-        run_command(["lscpu"])
-        return
-
-    cpuinfo = Path("/proc/cpuinfo")
-    if cpuinfo.is_file():
-        try:
-            lines = cpuinfo.read_text().splitlines()
-            model_lines = [
-                line.split(":", 1)[1].strip()
-                for line in lines
-                if line.startswith("model name")
-            ]
-            if model_lines:
-                print(f"CPU (fallback from /proc/cpuinfo): {model_lines[0]} ({len(model_lines)} core(s)) (lscpu not installed)")
-                return
-        except OSError:
-            pass
-
-    print("⚠️ CPU information is unavailable (lscpu is not installed).")
+    print(get_backend().get_cpu_info())
 
 
 def show_current_user():
-    if shutil.which("whoami"):
-        run_command(["whoami"])
-        return
-
-    try:
-        print(getpass.getuser())
-    except Exception:
-        user = os.environ.get("USER") or os.environ.get("LOGNAME")
-        if user:
-            print(user)
-        else:
-            print("⚠️ Current user information is unavailable.")
+    print(get_backend().get_current_user())
 
 
 def show_hostname():
-    if shutil.which("hostname"):
-        run_command(["hostname"])
-        return
-
-    try:
-        print(socket.gethostname())
-    except Exception:
-        print("⚠️ Hostname is unavailable.")
+    print(get_backend().get_hostname())
 
 
 def show_os_info():
-    if shutil.which("lsb_release"):
-        run_command(["lsb_release", "-a"])
-        return
-
-    os_release = Path("/etc/os-release")
-    if os_release.is_file():
-        try:
-            print(os_release.read_text().strip())
-            return
-        except OSError:
-            pass
-
-    if shutil.which("uname"):
-        run_command(["uname", "-sro"])
-        return
-
-    print("⚠️ OS distribution information is unavailable.")
+    print(get_backend().get_os_info())
 
 
 def show_network_info():
-    if shutil.which("ip"):
-        run_command(["ip", "addr", "show"])
-        return
-
-    if shutil.which("ifconfig"):
-        run_command(["ifconfig"])
-        return
-
-    try:
-        hostname = socket.gethostname()
-        ip = socket.gethostbyname(hostname)
-        print(f"Network info (fallback): Host: {hostname}, IP: {ip} (ip/ifconfig not available)")
-    except Exception:
-        print("⚠️ Network information is unavailable (ip and ifconfig not installed).")
+    print(get_backend().get_network_info())
 
 
 def show_logged_in_users():
-    if shutil.which("who"):
-        run_command(["who"])
-        return
-
-    if shutil.which("w"):
-        run_command(["w"])
-        return
-
-    user = os.environ.get("USER")
-    if user:
-        print(f"Logged in user (fallback): {user}")
-    else:
-        print("⚠️ Logged in users information is unavailable (who is not installed).")
+    print(get_backend().get_logged_in_users())
 
 
 def show_python_version():
-    if shutil.which("python3"):
-        run_command(["python3", "--version"])
-        return
-
-    print(f"Python {sys.version.split()[0]} (internal)")
+    print(get_backend().get_python_version())
 
 
 def show_package_manager_info():
-    managers = ("apt", "dnf", "pacman", "zypper", "apk")
-    found = [manager for manager in managers if shutil.which(manager)]
-    print("Detected package manager(s): " + ", ".join(found) if found else "No common package manager detected.")
+    print(get_backend().get_package_manager_info())
 
 
 def handle_version():
@@ -1092,15 +790,7 @@ def handle_version():
     print("\n".join(lines))
 
 def show_fastfetch_info():
-    if shutil.which("fastfetch"):
-        run_command(["fastfetch"])
-        return
-
-    print("fastfetch is not installed. Showing safe fallback system information instead.\n")
-    for command in (["uname", "-a"], ["lscpu"], ["free", "-h"], ["df", "-h"]):
-        print(f"$ {' '.join(command)}")
-        run_command(command)
-        print()
+    print(get_backend().get_fastfetch_info())
 
 
 def print_unknown_feedback(text):
@@ -1179,6 +869,7 @@ def handle_command(text):
     if DEBUG:
         print(f"[DEBUG] Predicted intent: {intent}")
 
+    backend = get_backend()
     handlers = {
         "list_files": lambda: run_command(["ls"]),
         "current_dir": lambda: run_command(["pwd"]),
@@ -1200,7 +891,7 @@ def handle_command(text):
         "logged_in_users": show_logged_in_users,
         "running_processes": show_running_processes,
         "environment_info": show_environment_info,
-        "shell_info": lambda: print(os.environ.get("SHELL", "Unknown shell")),
+        "shell_info": lambda: print(backend.get_shell()),
         "python_version": show_python_version,
         "package_manager_info": show_package_manager_info,
         "fastfetch_info": show_fastfetch_info,
