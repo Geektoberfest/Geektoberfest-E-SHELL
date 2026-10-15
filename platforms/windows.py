@@ -49,7 +49,49 @@ class WindowsBackend(PlatformBackend):
         raise UnsupportedOperationError(operation, "windows")
 
     def supports(self, capability: str) -> bool:
-        return capability in {"system_info", "file_operations", "gui_editors"}
+        if capability == "powershell":
+            return self._powershell_executable() is not None
+        return capability in {
+            "system_info",
+            "file_operations",
+            "gui_editors",
+            "process_execution",
+        }
+
+    @staticmethod
+    def _powershell_executable() -> Optional[str]:
+        return shutil.which("powershell.exe") or shutil.which("pwsh.exe")
+
+    def _run_powershell(
+        self, script: str, timeout: int = RUN_TIMEOUT_SECONDS
+    ) -> Optional[subprocess.CompletedProcess]:
+        executable = self._powershell_executable()
+        if executable is None:
+            return None
+        try:
+            return subprocess.run(
+                [
+                    executable,
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    script,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+    def _powershell_output(self, script: str) -> Optional[str]:
+        result = self._run_powershell(script)
+        if result is None or result.returncode != 0:
+            return None
+        output = result.stdout.strip()
+        return output or None
 
     def _compile_then_run(self, compile_args: List[str], run_args: List[str]) -> None:
         compile_result = self.run_and_capture(compile_args, timeout=RUN_TIMEOUT_SECONDS)
@@ -63,10 +105,20 @@ class WindowsBackend(PlatformBackend):
     # --- System Information ---
 
     def get_gpu_info(self) -> str:
-        return self._unsupported("get_gpu_info")
+        output = self._powershell_output(
+            "Get-CimInstance Win32_VideoController | "
+            "Select-Object Name, DriverVersion, AdapterRAM | "
+            "Format-Table -AutoSize | Out-String -Width 200"
+        )
+        return output or "GPU information is unavailable."
 
     def get_battery_info(self) -> str:
-        return self._unsupported("get_battery_info")
+        output = self._powershell_output(
+            "Get-CimInstance Win32_Battery | "
+            "Select-Object Name, EstimatedChargeRemaining, BatteryStatus | "
+            "Format-Table -AutoSize | Out-String -Width 200"
+        )
+        return output or "No battery information found."
 
     def get_disk_usage(self) -> str:
         drive = os.environ.get("SystemDrive") or Path.home().anchor or "C:\\"
@@ -166,10 +218,20 @@ class WindowsBackend(PlatformBackend):
         return f"Host: {hostname}\nIP address(es): {address_text}"
 
     def get_logged_in_users(self) -> str:
-        return self._unsupported("get_logged_in_users")
+        output = self._powershell_output(
+            "Get-CimInstance Win32_ComputerSystem | "
+            "Select-Object -ExpandProperty UserName"
+        )
+        return output or "Logged-in user information is unavailable."
 
     def get_running_processes(self) -> str:
-        return self._unsupported("get_running_processes")
+        output = self._powershell_output(
+            "Get-Process | Sort-Object WorkingSet64 -Descending | "
+            "Select-Object -First 10 Id, ProcessName, "
+            "@{Name='MemoryMB';Expression={[math]::Round($_.WorkingSet64 / 1MB, 1)}} | "
+            "Format-Table -AutoSize | Out-String -Width 200"
+        )
+        return output or "Running process information is unavailable."
 
     def get_environment_info(self) -> Dict[str, str]:
         keys = ("USERNAME", "USERPROFILE", "COMSPEC", "LANG", "TERM", "PATH")
@@ -186,7 +248,30 @@ class WindowsBackend(PlatformBackend):
         return "Detected package manager(s): " + ", ".join(found)
 
     def get_fastfetch_info(self) -> str:
-        return self._unsupported("get_fastfetch_info")
+        executable = shutil.which("fastfetch.exe") or shutil.which("fastfetch")
+        if executable:
+            try:
+                result = subprocess.run(
+                    [executable],
+                    capture_output=True,
+                    text=True,
+                    timeout=RUN_TIMEOUT_SECONDS,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                result = None
+            if result is not None and result.returncode == 0:
+                return result.stdout.rstrip()
+
+        return "\n\n".join(
+            (
+                "fastfetch is not installed. Showing fallback system information instead.",
+                self.get_os_info(),
+                self.get_cpu_info(),
+                self.get_memory_usage(),
+                self.get_disk_usage(),
+            )
+        )
 
     # --- File Operations ---
 
@@ -274,10 +359,43 @@ class WindowsBackend(PlatformBackend):
     def run_command(
         self, args: List[str], cwd: Optional[Path] = None
     ) -> Optional[subprocess.CompletedProcess]:
-        return self._unsupported("run_command")
+        powershell_commands = {
+            ("ls",): "Get-ChildItem | Select-Object Mode, LastWriteTime, Length, Name | Format-Table -AutoSize",
+            ("pwd",): "Get-Location | Select-Object -ExpandProperty Path",
+        }
+        script = powershell_commands.get(tuple(args))
+        if script is not None:
+            result = self._run_powershell(script)
+            if result is None:
+                print("PowerShell is unavailable.")
+                return None
+            if result.stdout:
+                print(result.stdout, end="")
+            if result.stderr:
+                print("Errors:")
+                print(result.stderr, end="")
+            return result
+
+        try:
+            return subprocess.run(args, cwd=cwd, check=False)
+        except FileNotFoundError:
+            print(f"Command not available: {args[0]}")
+            return None
 
     def launch_background(self, args: List[str]) -> bool:
-        return self._unsupported("launch_background")
+        if not args:
+            return False
+        executable = "calc.exe" if args[0] == "gnome-calculator" else args[0]
+        resolved_executable = shutil.which(executable)
+        if resolved_executable is None:
+            print(f"Command not available: {executable}")
+            return False
+        try:
+            subprocess.Popen([resolved_executable, *args[1:]])
+        except OSError as error:
+            print(f"Could not launch {executable}: {error}")
+            return False
+        return True
 
     def run_and_capture(
         self,
@@ -317,7 +435,7 @@ class WindowsBackend(PlatformBackend):
         return shutil.which(command)
 
     def get_shell(self) -> str:
-        return self._unsupported("get_shell")
+        return self._powershell_executable() or os.environ.get("COMSPEC", "Unknown shell")
 
     def get_editor_command(self, editor_name: str) -> Optional[List[str]]:
         editor = EDITORS.get(editor_name)

@@ -577,7 +577,7 @@ def handle_command(text):
     if first_word == "edit" or (
         first_word == "open"
         and (
-            (len(words) == 2 and words[1].lower() != "firefox")
+            (len(words) == 2 and words[1].lower() not in {"firefox", "calculator"})
             or (len(words) == 4 and words[2].lower() == "in")
         )
     ):
