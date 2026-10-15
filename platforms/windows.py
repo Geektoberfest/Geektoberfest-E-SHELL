@@ -9,6 +9,7 @@ gist:
     cross platform dependencies.
 """
 
+
 import ctypes
 import getpass
 import os
@@ -19,6 +20,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, NoReturn, Optional
+
 
 from platforms.base import PlatformBackend
 from platforms.errors import UnsupportedOperationError

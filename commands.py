@@ -11,8 +11,8 @@ from pathlib import Path
 
 from model import predict_intent
 from platforms import get_backend
-from platforms.errors import UnsupportedOperationError
 from version import __version__, dependency_lines, usage_line
+from platforms.errors import UnsupportedOperationError
 import settings
 
 # These commands are intentionally read-only or very limited.  Dangerous actions
@@ -477,12 +477,15 @@ def handle_make_executable(words):
     if not path.is_file():
         print(f"File does not exist in workspace: {path.name}")
         return
-
+      
     try:
         if get_backend().make_executable(path):
             print(f"Made executable: {path.name}")
     except UnsupportedOperationError:
         print("Making files executable is not supported on this platform.")
+
+    
+
 
 
 def ask_before_first_run(path):
