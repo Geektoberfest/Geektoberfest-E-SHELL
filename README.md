@@ -94,6 +94,39 @@ E-SHELL supports informational commands plus intentionally limited file actions.
 | `unzip archive.zip` or `extract archive.zip` | Safely extracts a `.zip` from `workspace/` into `workspace/` after checking every entry. |
 | `open_firefox` | Opens Firefox. |
 | `calculator` | Opens the calculator application. |
+| `tools` or `system tools` | Displays status and availability for all supported system tools. |
+| `htop [args]` | Launches interactive process and resource monitor (preserves arguments). |
+| `btop [args]` | Launches visual resource monitor for CPU, memory, disks, and network. |
+| `ncdu [path]` | Launches interactive NCurses disk-usage analyzer. |
+| `locate <pattern>` | Fast file searching using indexed database (`plocate`/`mlocate`). |
+| `tig [args]` | Launches interactive Git repository history and diff browser. |
+| `lazygit` (alias `lazyfit`) | Launches terminal-based Git operations interface. |
+| `tree [args]` | Displays recursive directory tree listing. |
+| `fzf [args]` | Launches interactive command-line fuzzy finder. |
+
+## Supported system tools
+
+E-SHELL supports launching useful terminal-based system utilities when they are installed on the host system:
+
+| Tool | Purpose | Package / Dependency | Interactive |
+|---|---|---|---|
+| `htop` | Interactive process and system resource monitor | `htop` | Yes |
+| `btop` | Modern visual resource monitor | `btop` | Yes |
+| `ncdu` | NCurses disk usage analyzer | `ncdu` | Yes |
+| `locate` | Fast file searching from an indexed database | `plocate` or `mlocate` | No |
+| `tig` | Text-mode interface for Git | `tig` | Yes |
+| `lazygit` | Terminal UI for Git operations | `lazygit` | Yes |
+| `tree` | Recursive directory tree listing | `tree` | No |
+| `fzf` | Command-line interactive fuzzy finder | `fzf` | Yes |
+
+### Tool launch and argument handling
+- **Direct invocation:** Type the tool name directly, e.g. `htop`, `btop`, `ncdu`, `tig`, `lazygit`, `tree`, or `fzf`.
+- **Arguments and flags preserved:** Any options or arguments (such as `htop -d 15`, `ncdu /var`, `locate -i "report.pdf"`, `tree -L 2`) are forwarded directly to the tool without shell interpretation.
+- **Terminal control:** Interactive terminal tools (TUI) inherit standard input and output directly, ensuring responsive keyboard navigation and redraws.
+- **Missing tool guidance:** If an optional tool is not installed, E-SHELL displays a clear, actionable message with exact installation commands for your package manager (`apt`, `dnf`, `pacman`, `zypper`, `apk`, `brew`, or Windows `winget`/`scoop`/`choco`).
+- **Status overview:** Type `tools` or `system tools` to see which tools are installed and available.
+
+
 
 ## Safety: intentionally narrow file operations
 
@@ -303,6 +336,15 @@ open hello.py in nano
 open hello.py in vim
 make script.sh executable
 run hello.py
+tools
+htop
+btop
+ncdu
+locate notes.txt
+tig
+lazygit
+tree
+fzf
 ```
 
 ## Proof that the model works
