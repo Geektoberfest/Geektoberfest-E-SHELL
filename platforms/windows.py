@@ -24,6 +24,10 @@ from platforms.base import PlatformBackend
 from platforms.errors import UnsupportedOperationError
 
 
+RUN_TIMEOUT_SECONDS = 10
+BLOCKED_NAME_PARTS = ("/", "\\", "..", "~", "*", "?", "&", "|", ";", "$", "`", ">", "<", ":")
+
+
 class WindowsBackend(PlatformBackend):
     """Windows backend scaffold."""
 
@@ -31,7 +35,16 @@ class WindowsBackend(PlatformBackend):
         raise UnsupportedOperationError(operation, "windows")
 
     def supports(self, capability: str) -> bool:
-        return capability == "system_info"
+        return capability in {"system_info", "file_operations"}
+
+    def _compile_then_run(self, compile_args: List[str], run_args: List[str]) -> None:
+        compile_result = self.run_and_capture(compile_args, timeout=RUN_TIMEOUT_SECONDS)
+        if compile_result is None:
+            return
+        if compile_result.returncode != 0:
+            print("Compiler errors are shown above.")
+            return
+        self.run_and_capture(run_args, timeout=RUN_TIMEOUT_SECONDS)
 
     # --- System Information ---
 
@@ -164,13 +177,16 @@ class WindowsBackend(PlatformBackend):
     # --- File Operations ---
 
     def create_file(self, path: Path) -> bool:
-        return self._unsupported("create_file")
+        path.touch(exist_ok=True)
+        return True
 
     def create_directory(self, path: Path) -> bool:
-        return self._unsupported("create_directory")
+        path.mkdir(exist_ok=False)
+        return True
 
     def copy_file(self, source: Path, destination: Path) -> bool:
-        return self._unsupported("copy_file")
+        shutil.copy2(source, destination)
+        return True
 
     def make_executable(self, path: Path) -> bool:
         return self._unsupported("make_executable")
@@ -179,7 +195,29 @@ class WindowsBackend(PlatformBackend):
         return self._unsupported("edit_file")
 
     def run_file(self, path: Path) -> bool:
-        return self._unsupported("run_file")
+        output_path = path.with_suffix(".exe")
+        runners = {
+            ".py": lambda: self.run_and_capture([sys.executable, str(path)], timeout=RUN_TIMEOUT_SECONDS),
+            ".c": lambda: self._compile_then_run(
+                ["gcc", str(path), "-o", str(output_path)], [str(output_path)]
+            ),
+            ".cpp": lambda: self._compile_then_run(
+                ["g++", str(path), "-o", str(output_path)], [str(output_path)]
+            ),
+            ".java": lambda: self._compile_then_run(
+                ["javac", str(path)], ["java", "-cp", str(path.parent), path.stem]
+            ),
+            ".js": lambda: self.run_and_capture(["node", str(path)], timeout=RUN_TIMEOUT_SECONDS),
+            ".go": lambda: self.run_and_capture(["go", "run", str(path)], timeout=RUN_TIMEOUT_SECONDS),
+            ".rs": lambda: self._compile_then_run(
+                ["rustc", str(path), "-o", str(output_path)], [str(output_path)]
+            ),
+        }
+        runner = runners.get(path.suffix.lower())
+        if runner is None:
+            return False
+        runner()
+        return True
 
     def extract_zip(self, archive_path: Path, extract_to: Path) -> int:
         return self._unsupported("extract_zip")
@@ -200,7 +238,28 @@ class WindowsBackend(PlatformBackend):
         cwd: Optional[Path] = None,
         timeout: int = 10,
     ) -> Optional[subprocess.CompletedProcess]:
-        return self._unsupported("run_and_capture")
+        try:
+            result = subprocess.run(
+                args,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except FileNotFoundError:
+            print(f"Command not available: {args[0]}")
+            return None
+        except subprocess.TimeoutExpired:
+            print(f"Stopped after {timeout} seconds because the program took too long.")
+            return None
+
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print("Errors:")
+            print(result.stderr, end="")
+        return result
 
     # --- Platform Capabilities ---
 
@@ -225,16 +284,25 @@ class WindowsBackend(PlatformBackend):
     # --- Utility ---
 
     def get_workspace_dir(self) -> Path:
-        return self._unsupported("get_workspace_dir")
+        return self.get_project_dir() / "workspace"
 
     def get_project_dir(self) -> Path:
-        return self._unsupported("get_project_dir")
+        return Path.cwd().resolve()
 
     def validate_filename(self, name: str) -> bool:
-        return self._unsupported("validate_filename")
+        return bool(name) and not any(part in name for part in BLOCKED_NAME_PARTS)
 
     def get_safe_path(self, filename: str) -> Optional[Path]:
-        return self._unsupported("get_safe_path")
+        if not self.validate_filename(filename):
+            return None
+        workspace = self.get_workspace_dir()
+        workspace.mkdir(exist_ok=True)
+        path = (workspace / filename).resolve()
+        return path if path.parent == workspace.resolve() else None
 
     def safe_name(self, name: str, label: str) -> Optional[Path]:
-        return self._unsupported("safe_name")
+        if not self.validate_filename(name):
+            return None
+        project = self.get_project_dir()
+        candidate = (project / name).resolve()
+        return candidate if candidate.parent == project else None
