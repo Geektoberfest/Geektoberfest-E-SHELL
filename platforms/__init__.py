@@ -36,8 +36,6 @@ def get_backend() -> PlatformBackend:
     """Return a new backend for the current operating system."""
     os_name = platform.system()
 
-    #debug 
-    print(f"os_namae:{os_name}")
 
     if os_name == "Linux":
         from platforms.linux import LinuxBackend

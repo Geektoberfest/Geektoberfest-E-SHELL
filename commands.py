@@ -12,6 +12,7 @@ from pathlib import Path
 from model import predict_intent
 from platforms import get_backend
 from version import __version__, dependency_lines, usage_line
+from platforms.errors import UnsupportedOperationError
 import settings
 
 # These commands are intentionally read-only or very limited.  Dangerous actions
@@ -443,7 +444,13 @@ def choose_default_editor():
     if usable:
         return max(usable, key=usable.get)
 
-    return "nano"
+    for name, config in editors.items():
+        if backend.which(config["command"][0]) and (
+            not config["gui"] or backend.has_display()
+        ):
+            return name
+
+    return next(iter(editors), "nano")
 
 
 def record_editor_use(name):
@@ -470,9 +477,15 @@ def handle_make_executable(words):
     if not path.is_file():
         print(f"File does not exist in workspace: {path.name}")
         return
+      
+    try:
+        if get_backend().make_executable(path):
+            print(f"Made executable: {path.name}")
+    except UnsupportedOperationError:
+        print("Making files executable is not supported on this platform.")
 
-    if get_backend().make_executable(path):
-        print(f"Made executable: {path.name}")
+    
+
 
 
 def ask_before_first_run(path):
@@ -823,7 +836,11 @@ def handle_command(text):
         handle_copy(words)
         return
     if first_word == "edit" or (
-        first_word == "open" and len(words) == 4 and words[2].lower() == "in"
+        first_word == "open"
+        and (
+            (len(words) == 2 and words[1].lower() not in {"firefox", "calculator"})
+            or (len(words) == 4 and words[2].lower() == "in")
+        )
     ):
         handle_edit(words)
         return

@@ -58,7 +58,7 @@ def train(base_dir=BASE_DIR):
     with open(base_path / "intent_model.pkl", "wb") as f:
         pickle.dump(model, f)
 
-    print("✅ Model trained successfully")
+    print("Model trained successfully")
 
 
 if __name__ == "__main__":

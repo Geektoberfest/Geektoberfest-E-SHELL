@@ -1,8 +1,7 @@
 from commands import handle_command
+from version import show_intro
 
-print("🤖 AI Terminal Assistant Started")
-print("Type 'help' to see available commands")
-print("Type 'exit' to quit\n")
+show_intro()
 
 while True:
     user_input = input(">> ").strip()
