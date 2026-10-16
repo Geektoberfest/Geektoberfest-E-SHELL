@@ -33,7 +33,7 @@ BLOCKED_COMMANDS = {
     "dd",
     "mkfs",
 }
-PROJECT_DIR = Path.cwd().resolve()
+PROJECT_DIR = Path(__file__).resolve().parent
 WORKSPACE_DIR = PROJECT_DIR / "workspace"
 """
 EDITORS now consist all the editors that can be used from REPL.
