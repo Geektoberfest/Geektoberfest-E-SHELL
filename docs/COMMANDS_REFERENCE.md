@@ -2,7 +2,7 @@
 
 This reference documents every intent and file-operation command supported by E-SHELL, along with example phrases, the action each command performs, and any external Linux tool it requires.
 
-> **Tip:** Type `help` inside E-SHELL to see a quick list of example phrases.
+> **Tip:** Type `help` inside E-SHELL to see a quick list of example phrases. For external command dependencies, missing command fallbacks, and Windows compatibility details, refer to the [Platform Compatibility Guide](COMPATIBILITY.md).
 
 ---
 
