@@ -381,12 +381,13 @@ E-SHELL exits normally when the user types `exit`:
 
 ![E-SHELL exit](docs/screenshots/assistant-exit.png)
 
-## Current limitations
+## Platform compatibility & limitations
 
-- The model is trained on a small number of example phrases, so its vocabulary is still limited.
-- Measured results, including the phrases it misses, are in [docs/model-evaluation.md](docs/model-evaluation.md).
-- It is designed for Linux systems and uses Linux-specific commands.
-- It is a lightweight classifier-based shell, not a large conversational AI model.
+- E-SHELL features cross-platform support across Linux and Windows via its `PlatformBackend` abstraction. See the [Platform Compatibility & Command Fallbacks Guide](docs/COMPATIBILITY.md) for the complete tool availability matrix, fallback mechanisms, distro package setup, and Windows capabilities.
+- The model is trained on example phrases, so its vocabulary is focused on supported command intents.
+- Measured results, including held-out evaluation phrases, are documented in [docs/model-evaluation.md](docs/model-evaluation.md).
+- It is a lightweight classifier-based shell, not a generative conversational AI model.
+
 
 ## Future improvements
 
